@@ -51,6 +51,8 @@ jobs:
         run: |
           npm audit --json > /tmp/npm-audit.json || true
           node -e 'const a=require("/tmp/npm-audit.json"); console.log("npm audit counts:", JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name,item] of Object.entries(a.vulnerabilities ?? {})) { const via=(item.via ?? []).map(v => typeof v === "string" ? v : {title:v.title,url:v.url,range:v.range,severity:v.severity}); console.log(name + " | " + item.severity + " | direct=" + item.isDirect + " | range=" + item.range + " | fix=" + JSON.stringify(item.fixAvailable) + " | via=" + JSON.stringify(via)); }'
+      - name: Run frontend regression tests
+        run: npm test
       - name: Check TypeScript
         run: npm run typecheck
       - name: Build Next.js frontend
