@@ -516,6 +516,48 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ");
 
+  // Respond to disclosures of abuse or assault before the academic-scope fallback.
+  const reportsAbuseOrAssault =
+    /\b(?:i(?:'m|m| am)?\s+being\s+(?:abused|hit|hurt|threatened)|i\s+(?:was|am)\s+(?:abused|hit|hurt|assaulted|threatened)|someone\s+(?:is|has been|was)\s+(?:abusing|hitting|hurting|assaulting|threatening)\s+me|my\s+(?:boyfriend|boyfriedn|bf|girlfriend|gf|partner|husband|wife|professor|lecturer|teacher)\s+(?:hit|slapped|punched|hurt|abused|assaulted|threatened)\s+me|(?:someone|a person)\s+(?:hit|slapped|punched|hurt|abused|assaulted|threatened)\s+me)\b/i.test(normalized);
+  if (reportsAbuseOrAssault) {
+    const involvesUniversityStaff = /\b(?:professor|lecturer|teacher|faculty member|university staff|staff member)\b/i.test(normalized);
+    const staffGuidance = involvesUniversityStaff
+      ? " Because this involves someone at the university, you could consider speaking with a trusted person and using the university’s official student-support or grievance channel when you feel safe to do so."
+      : "";
+    return "I’m sorry this is happening. You do not deserve to be hurt or abused. If you are in immediate danger, move to a safer place and contact emergency services (112 in India) or someone you trust. If you are safe right now, consider reaching out to a trusted friend, family member or support professional." +
+      staffGuidance +
+      " You do not have to share details here. Are you safe right now?";
+  }
+
+  // Acknowledge grief and low mood together instead of letting the bereavement
+  // response hide the student's mention of depression.
+  if (/\b(?:my|our)\s+(?:dog|cat|pet|friend|family member|someone)\s+(?:died|dies|passed away|has died)\b/i.test(normalized) &&
+      /\b(?:depressed|depression|low|hopeless|overwhelmed)\b/i.test(normalized)) {
+    return "I’m sorry for your loss. Losing a pet or someone close can be deeply painful, and feeling low after a loss can be difficult. Please consider telling someone you trust and reaching out to a qualified mental-health professional if this feeling is persisting or affecting daily life. If you feel at risk of hurting yourself or are in immediate danger, contact emergency services (112 in India) or Tele-MANAS at 14416. You do not have to handle this alone.";
+  }
+
+  // Keep personal/flirty prompts light while making clear that Vikki is an AI.
+  if (/^(?:are\s+(?:u|you)\s+hot|are\s+u\s+cute|are\s+you\s+cute|do\s+you\s+look\s+good)$/i.test(normalized)) {
+    return "I’m an AI assistant, so I don’t have a body or physical appearance. I’m here to help with B.Tech questions.";
+  }
+  if (/^(?:send\s+me\s+(?:your|ur)\s+(?:pic|picture|photo)|show\s+me\s+your\s+(?:pic|picture|photo)|your\s+pic|your\s+photo)$/i.test(normalized)) {
+    return "I don’t have a personal photo or physical appearance. I’m an AI assistant for B.Tech academic help.";
+  }
+  if (/^(?:nudes?|send\s+(?:me\s+)?nudes?|send\s+(?:me\s+)?naked\s+pics?)$/i.test(normalized)) {
+    return "I can’t provide nude or sexual images. I’m an AI academic assistant and don’t have personal photos.";
+  }
+  if (/^(?:my\s+(?:bf|boyfriend|boyfriedn|girlfriend|gf|partner)\s+is\s+(?:hot|cute|attractive)|my\s+(?:bf|boyfriend|boyfriedn|girlfriend|gf|partner)\s+looks\s+hot)$/i.test(normalized)) {
+    return "Sounds like you think highly of them. I’m an AI assistant, so I don’t have personal relationships, but I can help with your B.Tech questions too.";
+  }
+  if (/\b(?:who|which)\s+is\s+(?:the\s+)?(?:hottest|most\s+attractive|best[- ]looking)\s+(?:professor|lecturer|teacher|faculty member)\b/i.test(normalized)) {
+    return "I can’t rank or comment on a real person’s appearance. If you’re looking for an official faculty profile or the instructor for a particular course, I can help with that.";
+  }
+
+  // Profanity directed at the assistant should not trigger the unrelated-topic refusal.
+  if (/^(?:fuck\s+you|fucker|cunt|bitch|dumb\s+ai|stupid\s+ai|useless\s+ai|useless\s+bot|you(?:'re| are)\s+(?:dumb|stupid|useless)|dumb|stupid|idiot|useless)$/i.test(normalized)) {
+    return "I may have given an unhelpful answer. Tell me what I got wrong or what you expected, and I’ll try to address it.";
+  }
+
   if (/^(?:what do you know about my profile|what information can you access from my account|what can you access from my account|what information is available in my account|personal info you know about me|personal information you know about me|what personal info do you know about me|what personal information do you know about me)$/.test(normalized) && student) {
     const semester = student.current_semester === null ? "Graduated" : "Semester " + (student.current_semester ?? "not recorded");
     const cgpa = student.synthetic_cgpa === null || student.synthetic_cgpa === undefined ? "Not provided" : String(student.synthetic_cgpa);
@@ -618,8 +660,8 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
   if (/^(?:nthan|entha|enth|enthada|entha\s+da)(?:\s+bro)?(?:\s+ingane)?$/.test(normalized)) {
     return "Did I misunderstand something or give you an unhelpful answer? Tell me what went wrong and I’ll correct it.";
   }
-  if (/^(?:myr|myre|myru|poda|podi|bitch)$/.test(normalized)) {
-    return "I may have frustrated you. Tell me what I got wrong, and I’ll address that instead of repeating the same response.";
+  if (/^(?:myr|myre|myru|poda|podi)$/.test(normalized)) {
+    return "I may have given an unhelpful answer. Tell me what I got wrong or what you expected, and I’ll try to address it.";
   }
   const latestAssistant = [...history].reverse().find((item) => item.role === "assistant");
   if (
@@ -649,9 +691,7 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
   if (/^(?:bro|bruh|dude|yo|mate)$/.test(normalized)) {
     return "Hey. What do you need help with?";
   }
-  if (/^(?:dumb|stupid|idiot|useless|you are dumb|you are stupid)$/.test(normalized)) {
-    return "I may have given an unhelpful answer. Tell me what you expected, and I’ll try again using the relevant VU source.";
-  }
+
   if (/^(?:how are you|how are u|how're you|how r u)$/.test(normalized)) {
     return "I’m working and ready to help with your Vidyashilp University questions.";
   }
