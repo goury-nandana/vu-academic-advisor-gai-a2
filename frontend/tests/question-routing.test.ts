@@ -127,6 +127,53 @@ describe("academic question routing", () => {
     expect(result.answer).not.toMatch(/GROQ_API_KEY|could not generate/i);
   });
 
+
+  it("counts a passed-on-repeat course once in completed credits", async () => {
+    const result = await ask("How many credits have I completed?", "SYN-107");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/117 credits earned/i);
+    expect(result.answer).toMatch(/41 passed course records/i);
+    expect(result.answer).not.toMatch(/113 credits/i);
+  });
+
+  it("uses repeat-passed credits in the academic progress summary and does not label them failed", async () => {
+    const result = await ask("academic progress summary", "SYN-107");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Credits earned from passed courses: \*\*117\*\*/i);
+    expect(result.answer).toMatch(/Credits tied to failed courses: \*\*0\*\*/i);
+    expect(result.answer).not.toMatch(/COMP201.*Failed/i);
+  });
+
+  it("explains Semester 6 to Semester 7 yearly progression using the student's CGPA and active backlog", async () => {
+    const result = await ask("Can I progress to the next semester with one failed course?", "SYN-106");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Progression check for Isha Kulkarni/i);
+    expect(result.answer).toMatch(/Semester 6.*Semester 7/i);
+    expect(result.answer).toMatch(/minimum of \*\*5\.00 CGPA\*\*/i);
+    expect(result.answer).toMatch(/demo CGPA is 6\.12/i);
+    expect(result.answer).toMatch(/COMP201 \(Semester 2\)/i);
+    expect(result.answer).not.toMatch(/Semester 1 to Semester 2 after one failed course/i);
+  });
+
+  it("distinguishes a within-year Semester 3 to Semester 4 move from yearly promotion", async () => {
+    const result = await ask("I have one failed course. Can I go to the next semester?", "SYN-103");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 3.*Semester 4/i);
+    expect(result.answer).toMatch(/within the same Academic Year/i);
+    expect(result.answer).toMatch(/DATA103 \(Semester 1\)/i);
+    expect(result.answer).not.toMatch(/minimum of \*\*4\.00 CGPA\*\*/i);
+  });
+
+  it("treats a repeat-passed course as cleared when checking a Semester 7 to Semester 8 move", async () => {
+    const result = await ask("Can I progress to the next semester?", "SYN-107");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 7.*Semester 8/i);
+    expect(result.answer).toMatch(/within the same Academic Year/i);
+    expect(result.answer).toMatch(/Previously failed but passed on repeat/i);
+    expect(result.answer).toMatch(/COMP201.*Semester 2: Failed; Semester 6: Passed on repeat/i);
+    expect(result.answer).toMatch(/Currently failed courses:\*\* None/i);
+  });
+
   it("does not reject an arrear question as unrelated", async () => {
     const result = await ask("I have one arrear. What should I do?");
     // No Groq key is configured. This explicit configuration response proves
