@@ -268,6 +268,39 @@ describe("academic question routing", () => {
     expect(result.answer).toContain("DATA103");
   });
 
+
+  it("answers a concatenated bare Clause 4 query with the Program Regulations section", async () => {
+    const result = await ask("clause4");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 4 — Program Regulations/i);
+    expect(result.answer).toMatch(/admission criteria/i);
+    expect(result.answer).toMatch(/minimum credits/i);
+    expect(result.answer).toMatch(/programme structure and curriculum/i);
+    expect(result.model).toMatch(/Clause 4 lookup/i);
+    expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
+  });
+
+  it("answers a bare Clause 12 query with the Progression section, not the definition of Clause", async () => {
+    const result = await ask("clause 12", "SYN-104");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 12 — Progression/i);
+    expect(result.answer).toMatch(/4\.00/i);
+    expect(result.answer).toMatch(/5\.00/i);
+    expect(result.answer).toMatch(/Make-Up Examinations/i);
+    expect(result.answer).toMatch(/repeat the concerned Academic Year/i);
+    expect(result.answer).not.toMatch(/duly numbered provision/i);
+  });
+
+  it("does not silently change an explicit Semester 3-to-5 range to Kavya's Semester 4-to-5 profile path", async () => {
+    const result = await ask("can i progress form sem 3 to sem5", "SYN-104");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/question specifies \*\*Semester 3 to Semester 5\*\*/i);
+    expect(result.answer).toMatch(/profile records you in \*\*Semester 4\*\*/i);
+    expect(result.answer).toMatch(/next sequential semester is \*\*Semester 5\*\*/i);
+    expect(result.answer).toMatch(/minimum of \*\*5\.00 CGPA\*\*/i);
+    expect(result.answer).toMatch(/does not provide a CGPA/i);
+  });
+
   it("continues to reject clearly unrelated general-knowledge questions", async () => {
     const result = await ask("What is the capital of France?");
     expect(result.status).toBe(200);

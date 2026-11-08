@@ -837,7 +837,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
     /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
-  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick|clauses?|regulations?)\b/i.test(question) ||
+  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick|clauses?|regulations?)\b/i.test(question) || /\bclause\s*\d{1,2}\b/i.test(question) ||
     /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) ||
     extractCourseCodeCandidates(question).length > 0 ||
     mentionsKnownCourseTitle(question) ||
@@ -1508,6 +1508,16 @@ function retrieveAcademic(
         /Definitions In these Regulations|Academic Calendar.*means|Academic Council.*means|Academic Term.*means/i.test(document.text || ""))
       .forEach(addDocument);
   }
+  if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "4") {
+    // Clause 4 is headed "Program Regulations" on Handbook PDF page 28.
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) =>
+        /Student Handbook/i.test(document.source || "") &&
+        Number(document.page) === 28 &&
+        /(?:4\.\s*Program Regulations|4\.1\.|4\.2\.)/i.test(document.text || "")
+      )
+      .forEach(addDocument);
+  }
   if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "7") {
     // Clause 7 spans Handbook PDF pages 29–30; include every chunk carrying
     // its 7.1–7.6 provisions so a short "Clause 7" prompt is answerable.
@@ -1516,6 +1526,16 @@ function retrieveAcademic(
         /Student Handbook/i.test(document.source || "") &&
         (Number(document.page) === 29 || Number(document.page) === 30) &&
         /\b7\.[1-6]\b/.test(document.text || "")
+      )
+      .forEach(addDocument);
+  }
+  if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "12") {
+    // Clause 12 (Progression) is split across Handbook PDF pages 42–43.
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) =>
+        /Student Handbook/i.test(document.source || "") &&
+        (Number(document.page) === 42 || Number(document.page) === 43) &&
+        /\b12\.[1-5](?:\.\d+)?\b/.test(document.text || "")
       )
       .forEach(addDocument);
   }
@@ -2509,7 +2529,36 @@ export async function POST(request: Request) {
       /\b7\.[1-6]\b/.test(document.text || "")
     )
     .map(({ index }) => index);
-  const clause7QuestionIntent = requestedClauseNumber?.split(".")[0] === "7";
+  const requestedClauseRoot = requestedClauseNumber?.split(".")[0];
+  const clause4SourceIndices = academicMatches.map((document, index) => ({document,index}))
+    .filter(({document}) =>
+      /Student Handbook/i.test(document.source || "") &&
+      Number(document.page) === 28 &&
+      /(?:4\.\s*Program Regulations|4\.1\.|4\.2\.)/i.test(document.text || "")
+    ).map(({index}) => index);
+  const clause12SourceIndices = academicMatches.map((document, index) => ({document,index}))
+    .filter(({document}) =>
+      /Student Handbook/i.test(document.source || "") &&
+      (Number(document.page) === 42 || Number(document.page) === 43) &&
+      /\b12\.[1-5](?:\.\d+)?\b/.test(document.text || "")
+    ).map(({index}) => index);
+  const clause4Answer = requestedClauseRoot === "4" && clause4SourceIndices.length
+    ? "**Clause 4 — Program Regulations**\\n\\n" +
+      "Clause 4 defines Program Regulations as the programme-specific regulations and curriculum for a degree programme. It says these regulations are recommended by the concerned Board of Studies for Academic Council approval.\\n\\n" +
+      "- **4.1:** They cover programme-specific admission criteria, programme duration, mandatory minimum credits for the degree, assessment and evaluation guidelines, applicable regulatory-body requirements, qualification types/titles, and the process for recommending and approving qualifications.\\n" +
+      "- **4.2:** They include the programme structure and curriculum, listing the courses offered and their associated credits." +
+      clause4SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
+    : undefined;
+  const clause12Answer = requestedClauseRoot === "12" && clause12SourceIndices.length
+    ? "**Clause 12 — Progression**\\n\\n" +
+      "- **12.1 — Yearly promotion:** A minimum CGPA of **4.00** is required for progression to Year 2 (registration for Semester 3). A minimum CGPA of **5.00** applies to progression to Year 3 and higher years.\\n" +
+      "- **12.2 — When CGPA is assessed:** The minimum is assessed after the concerned Semester results, Make-Up Examinations and Summer Term, as applicable.\\n" +
+      "- **12.3 — If the threshold is not met:** The student chooses one of the options in Clauses 12.4 or 12.5.\\n" +
+      "- **12.4 — Repeat the Academic Year:** The student may repeat the concerned Academic Year, including both Odd and Even Semesters.\\n" +
+      "- **12.5 — Selective re-registration:** The student may instead re-register for selected courses in the next Academic Year to earn required credits and improve CGPA. The related clauses also specify how previous grades/credits and fees are treated." +
+      clause12SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
+    : undefined;
+  const clause7QuestionIntent = requestedClauseRoot === "7";
   const clause7Citation = clause7SourceIndices.map((index) => " [" + (index + 1) + "]").join("");
   const academicTermCitation = academicTermDefinitionIndex >= 0 ? " [" + (academicTermDefinitionIndex + 1) + "]" : "";
   const clause7Answer = clause7QuestionIntent && clause7SourceIndices.length
@@ -2542,6 +2591,10 @@ export async function POST(request: Request) {
   ).map(({index})=>index);
   const progressionQuestionIntent = /\b(?:fail\w*|backlogs?|progress\w*|promot\w*|eligible)\b/i.test(effectiveQuestion) &&
     (/\b(?:sem|semester)\s*\d{1,2}\b/i.test(effectiveQuestion) || /\b(?:semester|sem|year|academic year)\b/i.test(effectiveQuestion));
+  const explicitProgressionRangeMatch = effectiveQuestion.match(/\b(?:from\s+)?(?:semester|sem)\s*(\d{1,2})\s*(?:to|through|-)\s*(?:semester|sem)\s*(\d{1,2})\b/i);
+  const explicitProgressionRange = explicitProgressionRangeMatch
+    ? {from:Number(explicitProgressionRangeMatch[1]),to:Number(explicitProgressionRangeMatch[2])}
+    : undefined;
   const progressionAnswer = progressionQuestionIntent && progressionRegistrationIndex >= 0 && progressionCriteriaIndex >= 0
     ? (() => {
         const currentSemester=authenticatedStudent.current_semester;
@@ -2574,7 +2627,12 @@ export async function POST(request: Request) {
         const criteriaCitation=" ["+(progressionCriteriaIndex+1)+"]";
         const resultsCitation=progressionResultsIndex>=0?" ["+(progressionResultsIndex+1)+"]":"";
         const optionsCitations=progressionOptionsIndices.map((index)=>" ["+(index+1)+"]").join("");
-        let answer="**Progression check for "+studentLabel+"**\n\nYour profile shows **Semester "+currentSemester+"**. The next semester in sequence is **Semester "+targetSemester+"** (Academic Year "+targetYear+").\n\n";
+        const requestedRangeMismatch = Boolean(explicitProgressionRange) &&
+          (explicitProgressionRange!.from !== currentSemester || explicitProgressionRange!.to !== targetSemester);
+        const rangeNote = requestedRangeMismatch
+          ? "Your question specifies **Semester "+explicitProgressionRange!.from+" to Semester "+explicitProgressionRange!.to+"**, but your authenticated profile records you in **Semester "+currentSemester+"**. I will not treat the requested range as your personal progression path. Based on your profile, the next sequential semester is **Semester "+targetSemester+"**.\\n\\n"
+          : "";
+        let answer="**Progression check for "+studentLabel+"**\n\n"+rangeNote+"Your profile shows **Semester "+currentSemester+"**. The next semester in sequence is **Semester "+targetSemester+"** (Academic Year "+targetYear+").\n\n";
         if(!crossingAcademicYear) {
           answer+="This move stays **within the same Academic Year**. Clause 12.1 describes CGPA thresholds for yearly promotion at the start of the concerned Academic Year; it does not set a separate year-promotion CGPA threshold for this within-year semester move."+criteriaCitation+"\n\n";
           answer+="For next-semester registration, Clause 2.10 lists these conditions: specified fees paid, University/Hostel/Transport/Library dues cleared, and no University registration debarment."+registrationCitation+"\n\n";
@@ -2866,6 +2924,14 @@ const context=safeData(JSON.stringify({
     answer=btechDegreeCreditAnswer;
     modelUsed="Deterministic official VU B.Tech programme-credit lookup";
     pipeline.push("Retrieved the 180-credit, eight-semester requirement from the official B.Tech programme-structure pages; kept it separate from synthetic credits earned");
+  }else if(clause4Answer){
+    answer=clause4Answer;
+    modelUsed="Deterministic Student Handbook Clause 4 lookup";
+    pipeline.push("Retrieved Clause 4.1–4.2 on programme regulations, programme structure and curriculum");
+  }else if(clause12Answer){
+    answer=clause12Answer;
+    modelUsed="Deterministic Student Handbook Clause 12 lookup";
+    pipeline.push("Retrieved Clause 12.1–12.5 on yearly promotion criteria, CGPA assessment and progression options");
   }else if(clause7Answer){
     answer=clause7Answer;
     modelUsed="Deterministic Student Handbook Clause 7 lookup";
