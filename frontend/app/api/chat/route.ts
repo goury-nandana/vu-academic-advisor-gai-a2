@@ -697,15 +697,23 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
   if (/^(?:get out|go away|shut up|leave me alone|stop it|be quiet)$/.test(normalized)) {
     return “I’ll be here if you need help with your academics.”;
   }
-  // Single punctuation confusion
-  if (/^\?+$/.test(normalized)) {
+  // Single punctuation / symbol spam — not a course question
+  if (/^[^a-z0-9]+$/i.test(normalized)) {
     return “Could you rephrase that? I’m here to help with your B.Tech courses, prerequisites, credits and academic progress.”;
   }
-  // Common acknowledgement words — give a gentle prompt rather than asking if they mean a course
+  // Common acknowledgement words — gentle prompt
   if (/^(?:yep|yup|yeah|ya|nah|nope|sure|alright|mhm|hm|ah|uh|k|kk|mm)$/.test(normalized)) {
     return “What would you like help with?”;
   }
-  // A bare word is ambiguous: ask what the student means instead of guessing their intent.
+  // Casual multi-word filler: “nothing bro chill”, “chill bro”, “relax”, “calm down”, etc.
+  if (/^(?:nothing(?:\s+bro)?(?:\s+chill)?|chill(?:\s+bro)?|relax(?:\s+bro)?|calm down|never mind|nevermind|nm|nvm|it(?:’s| is) fine|no problem|no worries|all good|i(?:’m| am) fine|im fine)$/.test(normalized)) {
+    return “No worries! Ask me anything about your B.Tech courses whenever you’re ready.”;
+  }
+  // Partial / incomplete sentences like “thanks i meant” — acknowledge and prompt
+  if (/^thanks\b/.test(normalized) && normalized.length > 10) {
+    return “You’re welcome! What were you looking for? I’m happy to help with courses, prerequisites, credits or your academic progress.”;
+  }
+  // A bare single word is ambiguous: ask what the student means
   if (/^[a-z0-9][a-z0-9’-]*$/i.test(normalized)) {
     return “Could you clarify what you mean by **”” + normalized + “”**? Are you asking about a B.Tech course, your student profile, or something else?”;
   }
