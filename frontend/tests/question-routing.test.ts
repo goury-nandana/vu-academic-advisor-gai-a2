@@ -61,8 +61,10 @@ describe("academic question routing", () => {
   it("recognizes missing a class because of illness as an attendance question", async () => {
     const result = await ask("What should I do if I miss a class due to illness?");
     expect(result.status).toBe(200);
-    expect(result.answer).toMatch(/VU attendance rule/i);
+    expect(result.answer).toMatch(/Missed class due to illness/i);
     expect(result.answer).toContain("75%");
+    expect(result.answer).toMatch(/day you rejoin/i);
+    expect(result.answer).toMatch(/Digii/i);
     expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
   });
 
