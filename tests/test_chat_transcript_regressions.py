@@ -30,7 +30,7 @@ def normalize_like_route(question: str) -> str:
         "reqiremnet": "requirement",
     }
     for typo, correction in replacements.items():
-        question = re.sub(r"\\b" + typo + r"\\b", correction, question, flags=re.IGNORECASE)
+        question = re.sub(r"\b" + re.escape(typo) + r"\b", correction, question, flags=re.IGNORECASE)
     return question
 
 
@@ -58,9 +58,9 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertIn("percentage < 75", ROUTE)
         self.assertIn("attendance requirement of 80", ROUTE)
         handbook = [d for d in KNOWLEDGE["documents"] if "Student Handbook" in str(d.get("source", ""))]
-        self.assertTrue(any(re.search(r"75\\s*%", d.get("text", "")) for d in handbook))
-        self.assertTrue(any(re.search(r"65\\s*%", d.get("text", "")) for d in handbook))
-        self.assertTrue(any(re.search(r"attendance requirement of 80\\s*%", d.get("text", ""), re.I) for d in handbook))
+        self.assertTrue(any(re.search(r"(?:seventy five percent|75\s*%)", d.get("text", ""), re.I) for d in handbook))
+        self.assertTrue(any(re.search(r"(?:sixty five percent|65\s*%)", d.get("text", ""), re.I) for d in handbook))
+        self.assertTrue(any(re.search(r"attendance requirement of 80\s*%", d.get("text", ""), re.I) for d in handbook))
 
     def test_failed_course_typo_reaches_deterministic_profile_handler(self):
         normalized = normalize_like_route("have i faled naything?")
@@ -93,7 +93,7 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertEqual({row["course_code"] for row in unknown}, {"MATH209"})
 
     def test_generative_ai_is_not_present_in_kavya_batch_plan_and_is_not_given_invented_prerequisites(self):
-        self.assertFalse(any(re.search(r"generative\\s*ai", str(row.get("course_title", "")) + " " + str(row.get("course_code", "")), re.I) for row in self.batch_rows))
+        self.assertFalse(any(re.search(r"generative\s*ai", str(row.get("course_title", "")) + " " + str(row.get("course_code", "")), re.I) for row in self.batch_rows))
         page_chunks = [row for row in WEBSITE["chunks"] if row.get("page_id") == "programme_btech_aiml"]
         self.assertTrue(any("Generative AI models" in row.get("text", "") for row in page_chunks))
         self.assertIn("generativeAiElectiveAnswer", ROUTE)
