@@ -301,6 +301,52 @@ describe("academic question routing", () => {
     expect(result.answer).toMatch(/does not provide a CGPA/i);
   });
 
+  it("answers Clause 11.3 from the Handbook instead of refusing it as unrelated", async () => {
+    const result = await ask("What does clause 11.3 say?");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 11.3 — Summer Term registration/i);
+    expect(result.answer).toMatch(/Academic Calendar|University Notification/i);
+    expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
+  });
+
+  it("retrieves the Award of Degree conditions for Clause 15", async () => {
+    const result = await ask("Clause 15 of handbook");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 15 — Award of Degree/i);
+    expect(result.answer).toContain("5.00");
+    expect(result.answer).toContain("8.50 or above");
+    expect(result.answer).toMatch(/Provisional Degree Certificate/i);
+    expect(result.answer).not.toMatch(/not included in the excerpts/i);
+  });
+
+  it("returns the exact batch-specific L-T-P rows for COMP302", async () => {
+    const result = await ask("Ltp structure for comp302", "SYN-103");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/L-T-P structure/i);
+    expect(result.answer).toContain("2025");
+    expect(result.answer).toContain("0-0-4");
+    expect(result.answer).toMatch(/Internet of Things/i);
+    expect(result.model).toMatch(/batch-specific L-T-P lookup/i);
+    expect(result.answer).not.toMatch(/do not include the detailed|not have any source rows/i);
+  });
+
+  it("guides a general request for any course's L-T-P to a supported course lookup", async () => {
+    const result = await ask("Ltp structure of any course");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/give me a course code or title/i);
+    expect(result.answer).toContain("COMP302");
+    expect(result.answer).not.toMatch(/do not include the detailed/i);
+  });
+
+  it("understands 'next sem' as an academic progression question", async () => {
+    const result = await ask("Can I progress to next sem?", "SYN-106");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Progression check for Isha Kulkarni/i);
+    expect(result.answer).toMatch(/Semester 6.*Semester 7/i);
+    expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
+    expect(result.answer).not.toMatch(/\\n/);
+  });
+
   it("continues to reject clearly unrelated general-knowledge questions", async () => {
     const result = await ask("What is the capital of France?");
     expect(result.status).toBe(200);
