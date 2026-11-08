@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAuthenticatedStudent } from "../../../../lib/demo-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -46,6 +47,15 @@ async function transcribe(file: File, key: string): Promise<string> {
 }
 
 export async function POST(request: Request) {
+  // Transcription uses a paid provider key, so gate it with the same account session as chat.
+  const authenticatedStudent = getAuthenticatedStudent(request);
+  if (!authenticatedStudent) {
+    return NextResponse.json({ error: "Please log in with a synthetic student account before using voice transcription." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  }
+  const expectedProfileId = request.headers.get("x-expected-profile-id");
+  if (expectedProfileId && expectedProfileId !== authenticatedStudent.id) {
+    return NextResponse.json({ error: "Your session changed in another tab or window. Reload this page to continue as the signed-in student.", code: "SESSION_CHANGED" }, { status: 409, headers: { "Cache-Control": "no-store" } });
+  }
   const origin = request.headers.get("origin");
   const requestHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
   if (origin) {
