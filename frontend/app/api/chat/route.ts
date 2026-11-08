@@ -2286,15 +2286,27 @@ export async function POST(request: Request) {
         const statusFor=(code:string):string=>{
           const record=authenticatedStudent.academic_records.find((item)=>String(item.course_code||"").replace(/[\s-]/g,"").toUpperCase()===code);
           const status=String(record?.status||"").toLowerCase();
-          if(status==="passed"||authenticatedStudent.completed_course_codes.some((item)=>String(item).replace(/[\s-]/g,"").toUpperCase()===code)) return "Passed";
+          if(status==="passed"||status==="passed on repeat"||authenticatedStudent.completed_course_codes.some((item)=>String(item).replace(/[\s-]/g,"").toUpperCase()===code)) return "Passed";
           if(status==="failed"||authenticatedStudent.failed_course_codes.some((item)=>String(item).replace(/[\s-]/g,"").toUpperCase()===code)) return "Failed";
           if(status.includes("progress")) return "In progress";
           if(authenticatedStudent.unknown_course_codes?.some((item)=>String(item).replace(/[\s-]/g,"").toUpperCase()===code)) return "Unknown";
           return "Not recorded";
         };
         const statusRows=profileCoursePrerequisites.map((code)=>({code,status:statusFor(code)}));
-        const failed=statusRows.filter((item)=>item.status==="Failed").map((item)=>item.code);
-        const unfinished=statusRows.filter((item)=>item.status!=="Passed"&&item.status!=="Failed").map((item)=>item.code);
+        const slashCodes=new Set(profileCourseAmbiguousPrerequisiteGroups.flat());
+        const failed=statusRows.filter((item)=>!slashCodes.has(item.code)&&item.status==="Failed").map((item)=>item.code);
+        const unfinished=statusRows.filter((item)=>!slashCodes.has(item.code)&&item.status!=="Passed"&&item.status!=="Failed").map((item)=>item.code);
+        const failedSlashGroups=profileCourseAmbiguousPrerequisiteGroups.filter((group)=>group.every((code)=>statusFor(code)==="Failed"));
+        const unresolvedSlashGroups=profileCourseAmbiguousPrerequisiteGroups.filter((group)=>
+          !group.every((code)=>statusFor(code)==="Passed")&&!group.every((code)=>statusFor(code)==="Failed")
+        );
+        const effectiveFailed=[...failed,...failedSlashGroups.flat()];
+        const slashCaveat=unresolvedSlashGroups.length
+          ? " The source writes "+unresolvedSlashGroups.map((group)=>group.join("/")).join("; ")+" with a slash but does not say whether this means both prerequisites or alternatives. I will not assume either interpretation."
+          : "";
+        const missingWorkbookRowsNote=missingProfilePrerequisiteWorkbookCodes.length
+          ? " The supplied "+authenticatedStudent.admission_batch+" batch dataset has no matching prerequisite course row for: "+missingProfilePrerequisiteWorkbookCodes.join(", ")+". Source verification is incomplete."
+          : "";
         const batch=authenticatedStudent.admission_batch;
         const targetCitationIndex=academicMatches.findIndex((document)=>
           String(document.title||"").toUpperCase().startsWith(requestedSyntheticCourseCode+" —")&&
@@ -2303,8 +2315,8 @@ export async function POST(request: Request) {
         const citation=targetCitationIndex>=0?" ["+(targetCitationIndex+1)+"]":"";
         let resultText="";
         if(!statusRows.length) resultText="The batch-specific course-plan row lists no direct prerequisite codes.";
-        else if(failed.length) resultText="The direct prerequisite check is **not met** because the profile records failed prerequisite(s): "+failed.join(", ")+".";
-        else if(unfinished.length) resultText="The direct prerequisite check is **not yet confirmed**. The profile does not show a passed result for: "+unfinished.map((code)=>code+" ("+statusRows.find((item)=>item.code===code)?.status+")").join(", ")+".";
+        else if(effectiveFailed.length) resultText="The direct prerequisite check is **not met** because the profile records failed prerequisite(s): "+effectiveFailed.join(", ")+".";
+        else if(unresolvedSlashGroups.length||unfinished.length||missingProfilePrerequisiteWorkbookCodes.length) resultText="The direct prerequisite check is **not yet confirmed**. The profile or supplied cohort workbook does not establish every listed prerequisite."+slashCaveat+missingWorkbookRowsNote;
         else resultText="The profile records all listed direct prerequisites as passed. The direct prerequisite check is **met**.";
         const rows=statusRows.length
           ? "\n\n| Required prerequisite | Profile result |\n| --- | --- |\n"+statusRows.map((item)=>"| "+item.code+" | "+item.status+" |").join("\n")
