@@ -2274,7 +2274,7 @@ export async function POST(request: Request) {
           : "I could not identify any future UCOR-coded courses remaining in the supplied semester-spread records for your admission batch. Please confirm the official University-Core requirements with your Faculty Advisor.";
       })()
     : undefined;
-  const asksAcademicWritingEligibility=/\bacademic writing\b/i.test(effectiveQuestion)&&
+  const asksAcademicWritingEligibility=/\b(?:academic|acdemic) writing\b/i.test(effectiveQuestion)&&
     /\b(?:can i take|can i enrol|can i enroll|can i register|am i eligible|eligibility|allowed to take|take this course)\b/i.test(effectiveQuestion);
   const academicWritingAnswer=asksAcademicWritingEligibility
     ? (() => {
