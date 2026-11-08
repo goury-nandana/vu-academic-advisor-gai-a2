@@ -24,27 +24,48 @@ function makePage(lines: Array<{ text: string; size?: number; bold?: boolean }>)
   return stream;
 }
 export function createSyntheticMarksheetPdf(student: SyntheticStudentProfile, selectedSemester?: number): Buffer {
-  const records = [...(student.academic_records || [])]
-    .filter((record) => selectedSemester === undefined || Number(record.semester) === selectedSemester)
-    .sort((a, b) => a.semester - b.semester || a.course_code.localeCompare(b.course_code));
-  const passedCredits = records.filter((record) => record.status === "Passed" || record.status === "Passed on repeat").reduce((sum, record) => sum + Number(record.credits || 0), 0);
-  const attemptedCredits = records.reduce((sum, record) => sum + Number(record.credits || 0), 0);
+  const sourceRecords = student.academic_records || [];
+  const attemptRows = sourceRecords.flatMap((record) => {
+    const attempts = Array.isArray(record.attempts) && record.attempts.length
+      ? [...record.attempts].sort((a, b) => Number(a.semester) - Number(b.semester))
+      : [{ semester: record.semester, grade: record.grade, status: record.status }];
+    return attempts.map((attempt, index) => ({
+      semester: Number(attempt.semester),
+      course_code: record.course_code,
+      course_title: record.course_title,
+      credits: Number(record.credits || 0),
+      grade: attempt.grade,
+      status: attempt.status,
+      attemptNumber: index + 1,
+    }));
+  }).filter((row) => selectedSemester === undefined || row.semester === selectedSemester)
+    .sort((a, b) => a.semester - b.semester || a.course_code.localeCompare(b.course_code) || a.attemptNumber - b.attemptNumber);
+
+  const passedStatus = (status: unknown) => ["passed", "passed on repeat"].includes(String(status || "").trim().toLowerCase());
+  const passedCredits = selectedSemester === undefined
+    ? [...new Map(sourceRecords.filter((record) => passedStatus(record.status))
+        .map((record) => [record.course_code.replace(/[\s-]/g, "").toUpperCase(), Number(record.credits || 0)])).values()]
+        .reduce((sum, credits) => sum + credits, 0)
+    : [...new Map(attemptRows.filter((row) => passedStatus(row.status))
+        .map((row) => [row.course_code.replace(/[\s-]/g, "").toUpperCase(), row.credits])).values()]
+        .reduce((sum, credits) => sum + credits, 0);
+  const attemptedCredits = attemptRows.reduce((sum, row) => sum + row.credits, 0);
   const generatedDate = new Date().toISOString().slice(0, 10);
-  const semesterCreditTotals = records.reduce((totals, record) => {
-    const semester = String(record.semester);
-    totals[semester] = (totals[semester] || 0) + Number(record.credits || 0);
+  const semesterCreditTotals = attemptRows.reduce((totals, row) => {
+    const semester = String(row.semester);
+    totals[semester] = (totals[semester] || 0) + row.credits;
     return totals;
   }, {} as Record<string, number>);
   const semesterTotalsLabel = Object.keys(semesterCreditTotals).sort((a, b) => Number(a) - Number(b)).map((semester) => semester + ": " + semesterCreditTotals[semester] + " credits").join(" | ");
-  const tableHeader = "SEM  COURSE CODE  COURSE TITLE                              CR  GRADE      RESULT";
-  const tableRows = records.map((record) => {
-    const sem = String(record.semester).padStart(2, " ");
-    const code = ascii(record.course_code).padEnd(12).slice(0, 12);
-    const title = ascii(record.course_title).padEnd(40).slice(0, 40);
-    const credits = String(record.credits).padStart(2, " ");
-    const grade = ascii(record.grade || "Not provided").padEnd(10).slice(0, 10);
-    const status = ascii(record.status);
-    return `${sem}   ${code} ${title} ${credits}  ${grade} ${status}`;
+  const tableHeader = "SEM  COURSE CODE  COURSE TITLE                              CR  GRADE      RESULT  ATTEMPT";
+  const tableRows = attemptRows.map((row) => {
+    const sem = String(row.semester).padStart(2, " ");
+    const code = ascii(row.course_code).padEnd(12).slice(0, 12);
+    const title = ascii(row.course_title).padEnd(40).slice(0, 40);
+    const credits = String(row.credits).padStart(2, " ");
+    const grade = ascii(row.grade || "Not provided").padEnd(10).slice(0, 10);
+    const status = ascii(row.status);
+    return `${sem}   ${code} ${title} ${credits}  ${grade} ${status}  ${row.attemptNumber}`;
   });
   const pages: Array<Array<{ text: string; size?: number; bold?: boolean }>> = [];
   const intro: Array<{ text: string; size?: number; bold?: boolean }> = [
@@ -56,8 +77,9 @@ export function createSyntheticMarksheetPdf(student: SyntheticStudentProfile, se
     { text: "Synthetic ID: " + student.synthetic_student_id + "    Programme: " + student.programme },
     { text: "Admission batch: " + student.admission_batch + "    Current semester: " + (student.current_semester === null ? "Graduated" : student.current_semester) },
     { text: "Academic status: " + (student.current_semester === null || /graduat/i.test(student.academic_status || "") ? "GRADUATED" : (student.academic_status || "Not provided")) + "    Synthetic CGPA: " + (student.synthetic_cgpa ?? "Not provided") },
-    { text: (selectedSemester === undefined ? "Cumulative completed credits" : "Semester " + selectedSemester + " completed credits") + " (passed course records): " + passedCredits + "    Credits across listed records: " + attemptedCredits },
-    { text: "Semester credit totals: " + semesterTotalsLabel, size: 8 },
+    { text: (selectedSemester === undefined ? "Cumulative completed credits" : "Semester " + selectedSemester + " passed credits") + " (unique course codes passed): " + passedCredits },
+    { text: "Credits across displayed attempts (repeat attempts counted separately): " + attemptedCredits, size: 8 },
+    { text: "Attempt credits by semester: " + semesterTotalsLabel, size: 8 },
     { text: "Numeric marks not provided; synthetic grade values are displayed from the profile.", size: 8 },
     { text: "All grades, CGPA and outcomes shown here are fictional test data." },
     { text: tableHeader, size: 8, bold: true },
@@ -73,7 +95,7 @@ export function createSyntheticMarksheetPdf(student: SyntheticStudentProfile, se
       ...tableRows.slice(start, start + 42).map((text) => ({ text, size: 7 })),
     ]);
   }
-  if (records.length === 0) {
+  if (attemptRows.length === 0) {
     pages[0].push({ text: "No course records are present in this synthetic profile." });
   }
   const pageStreams = pages.map(makePage);

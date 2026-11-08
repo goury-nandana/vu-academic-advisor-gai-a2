@@ -1,4 +1,5 @@
 import syntheticStudentData from "./data/synthetic-students.json";
+import { parsePrerequisiteExpression } from "./lib/prerequisites";
 
 export type AgentCourseRecord = {
   course_code: string;
@@ -31,6 +32,8 @@ export type AgentWorkflowResult = {
   eligibility: "prerequisites_met" | "prerequisite_failed" | "insufficient_information";
   failedPrerequisites: string[];
   unverifiedPrerequisites: string[];
+  ambiguousPrerequisiteGroups: string[][];
+  missingPrerequisiteRows: string[];
   calculatedCredits: number;
   creditCourseCodes: string[];
   missingCreditRecords: string[];
@@ -112,15 +115,33 @@ export function eligibilityAgent(
   student: SyntheticStudent,
   course: AgentCourseRecord,
   records: AgentCourseRecord[],
-): { status: AgentWorkflowResult["eligibility"]; prerequisites: string[]; failed: string[]; unverified: string[]; evidence: AgentCourseRecord[] } {
-  const raw = String(course.prerequisite || "").trim();
-  const prerequisites = raw && !/^(?:nil|none|na|n\/a|-)$/i.test(raw)
-    ? raw.split(/[,;]+/).map(normalizeCode).filter(Boolean)
-    : [];
+): {
+  status: AgentWorkflowResult["eligibility"];
+  prerequisites: string[];
+  failed: string[];
+  unverified: string[];
+  ambiguousPrerequisiteGroups: string[][];
+  evidence: AgentCourseRecord[];
+} {
+  const parsed = parsePrerequisiteExpression(course.prerequisite);
+  const prerequisites = parsed.codes;
   const completed = new Set(student.completed_course_codes.map(normalizeCode));
   const failedCourses = new Set(student.failed_course_codes.map(normalizeCode));
-  const failed = prerequisites.filter((code) => failedCourses.has(code));
-  const unverified = prerequisites.filter((code) => !completed.has(code) && !failedCourses.has(code));
+  const slashCodes = new Set(parsed.ambiguousSlashGroups.flat());
+  const requiredSeparately = prerequisites.filter((code) => !slashCodes.has(code));
+  const failed = requiredSeparately.filter((code) => failedCourses.has(code));
+  const unverified = requiredSeparately.filter((code) => !completed.has(code) && !failedCourses.has(code));
+
+  // The workbook writes "COMP210/COMP301" but does not define whether slash
+  // means both courses or either course. Only a uniformly passed or failed
+  // group can be resolved without inventing that meaning.
+  for (const group of parsed.ambiguousSlashGroups) {
+    const allPassed = group.every((code) => completed.has(code));
+    const allFailed = group.every((code) => failedCourses.has(code));
+    if (allFailed) failed.push(...group);
+    else if (!allPassed) unverified.push(group.join("/") + " (the workbook does not define the slash relationship)");
+  }
+
   const evidence = prerequisites.flatMap((code) => {
     const row = records.find((record) =>
       normalizeCode(record.course_code) === code &&
@@ -136,7 +157,7 @@ export function eligibilityAgent(
     : unverified.length
       ? "insufficient_information"
       : "prerequisites_met";
-  return { status, prerequisites, failed, unverified, evidence };
+  return { status, prerequisites, failed, unverified, ambiguousPrerequisiteGroups: parsed.ambiguousSlashGroups, evidence };
 }
 
 /** Agent 5: verifies that the target and all stated prerequisite rows exist in the source dataset. */
@@ -145,8 +166,8 @@ export function verificationAgent(
   prerequisites: string[],
   records: AgentCourseRecord[],
   student: SyntheticStudent,
-): { verified: boolean; evidence: AgentCourseRecord[] } {
-  const required = [normalizeCode(course.course_code), ...prerequisites];
+): { verified: boolean; evidence: AgentCourseRecord[]; missingCodes: string[] } {
+  const required = [...new Set([normalizeCode(course.course_code), ...prerequisites])];
   const evidence = required.flatMap((code) => {
     const row = records.find((record) =>
       normalizeCode(record.course_code) === code &&
@@ -158,7 +179,9 @@ export function verificationAgent(
     );
     return row ? [row] : [];
   });
-  return { verified: evidence.length === required.length, evidence };
+  const present = new Set(evidence.map((row) => normalizeCode(row.course_code)));
+  const missingCodes = required.filter((code) => !present.has(code));
+  return { verified: missingCodes.length === 0, evidence, missingCodes };
 }
 
 /** Agent 6: gives a limited recommendation; it does not decide university enrolment. */
@@ -189,14 +212,21 @@ export function runAcademicAdvisorAgentWorkflow(
   const credit = creditCalculationAgent(student, records);
   const eligibility = eligibilityAgent(student, course, records);
   const verification = verificationAgent(course, eligibility.prerequisites, records, student);
-  const recommendation = verification.verified
+  let recommendation = verification.verified
     ? recommendationAgent(eligibility.status, eligibility.failed, eligibility.unverified)
     : "Source verification is incomplete. Do not make an eligibility recommendation from this record.";
+  if (eligibility.ambiguousPrerequisiteGroups.length) {
+    recommendation += " The workbook uses slash-separated prerequisite notation (" +
+      eligibility.ambiguousPrerequisiteGroups.map((group) => group.join("/")).join("; ") +
+      ") but does not say whether the codes are alternatives or jointly required, so the relationship is not assumed.";
+  }
   return {
     student, course, prerequisites: eligibility.prerequisites,
     eligibility: verification.verified ? eligibility.status : "insufficient_information",
     failedPrerequisites: eligibility.failed,
     unverifiedPrerequisites: eligibility.unverified,
+    ambiguousPrerequisiteGroups: eligibility.ambiguousPrerequisiteGroups,
+    missingPrerequisiteRows: verification.missingCodes.filter((code) => normalizeCode(code) !== normalizeCode(course.course_code)),
     calculatedCredits: credit.total,
     creditCourseCodes: credit.courseCodes,
     missingCreditRecords: credit.missing,
