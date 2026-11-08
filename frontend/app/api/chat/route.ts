@@ -629,7 +629,7 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
     return "No problem. I understand. What would you like to check next?";
   }
 
-  if (/^(?:hi+|h+y+|hello+|h+e+y+|heylo+|hii+|hlo+|helo+|hallo+|good morning|goodmorning|good afternoon|goodafternoon|good evening|goodevening|good night|namaste|namaskara+|namaskaram|vanakkam|bonjour|bonour|bonjur|hola)(?: there)?$/.test(normalized)) {
+  if (/^(?:hey bro|hi+|h+y+|hello+|h+e+y+|heylo+|hii+|hlo+|helo+|hallo+|good morning|goodmorning|good afternoon|goodafternoon|good evening|goodevening|good night|namaste|namaskara+|namaskaram|vanakkam|bonjour|bonour|bonjur|hola)(?: there)?$/.test(normalized)) {
     return "Hello. I’m **Vikki Talk** 👋 Your academic assistant for B.Tech at Vidyashilp University. Ask me about courses, prerequisites, credits, backlogs, eligibility and academic progression.";
   }
   if (/^(?:bro|bruh|dude|yo|mate)$/.test(normalized)) {
@@ -644,7 +644,7 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
   if (/^(?:bye|goodbye|good bye|see you|see ya|take care|talk later)$/.test(normalized)) {
     return "Goodbye. You can return whenever you need help with Vidyashilp University information.";
   }
-  if (/^(?:thanks|thank you|thank u|thnak you|thnak u|thnaks|thakns|thx|ty|thanks a lot)$/.test(normalized)) {
+  if (/^(?:thanks|thank you|thank u|thnak you|thnak u|thnaks|thakns|thnx|thx|ty|thanks a lot|xoxo)$/.test(normalized)) {
     return "You’re welcome. Let me know when you need help with a VU-related question.";
   }
   if (/^(?:can i get a hug|could i get a hug|i need a hug)$/.test(normalized)) {
