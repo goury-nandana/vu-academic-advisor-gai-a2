@@ -515,7 +515,14 @@ function normalizeAcademicTypos(question: string): string {
     .replace(/\bocurses\b/gi, "courses")
     .replace(/\bstructre\b/gi, "structure")
     .replace(/\beleigible\b/gi, "eligible")
-    .replace(/\breqiremnet\b/gi, "requirement");
+    .replace(/\breqiremnet\b/gi, "requirement")
+    .replace(/\bhwo\b/gi, "how")
+    .replace(/\beran\b/gi, "earn")
+    .replace(/\bnd\b/gi, "and")
+    .replace(/\bahve\b/gi, "have")
+    .replace(/\bspecialsation\b/gi, "specialisation")
+    .replace(/\bform(?=\s+(?:sem(?:ester)?|semester)\s*\d)/gi, "from")
+    .replace(/\bsem(?=\s*\d)/gi, "semester");
 }
 
 function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = [], student?: { name: string; username: string; synthetic_student_id: string; programme?: string; admission_batch?: string; current_semester?: number | null; academic_status?: string; synthetic_cgpa?: number | null }): string | undefined {  const normalized = question.trim().toLowerCase()    .replace(/(.)\1{2,}/g, "$1")
@@ -830,7 +837,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
     /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
-  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick)\b/i.test(question) ||
+  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick|clauses?|regulations?)\b/i.test(question) ||
     /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) ||
     extractCourseCodeCandidates(question).length > 0 ||
     mentionsKnownCourseTitle(question) ||
@@ -1424,6 +1431,7 @@ function retrieveAcademic(
     /\b(?:semester|year|academic year)\b/i.test(question);
   const gradeAverageIntent = /\b(?:cgpa|sgpa|grade point average)\b/i.test(question);
   const convocationIntent = /\bconvocation\b/i.test(question);
+  const clauseNumberMatch = question.match(/\bclause\s*(?:no\.?\s*)?(\d{1,2}(?:\.\d{1,2})*)\b/i);
   const definitionsIntent = /\b(?:definition|definitions|define|meaning|what is|what does)\b/i.test(question) &&
     /\b(?:academic calendar|academic council|academic regulations|academic term|board of governors|act|regulatory bodies|programme regulations|definitions)\b/i.test(question);
   const arrearOrUnclearedPaperIntent =
@@ -1431,7 +1439,7 @@ function retrieveAcademic(
     /\b(?:could not|couldn't|did not|didn't)\s+clear\b/i.test(question) ||
     /\b(?:fail|failed|failing)\b.{0,45}\b(?:paper|course|subject)\b/i.test(question) ||
     /\b(?:paper|course|subject)\b.{0,45}\b(?:fail|failed|arrear|backlog)\b/i.test(question);
-  const academicIntent = attendanceIntent || progressionIntent || gradeAverageIntent || convocationIntent || definitionsIntent || courseCodes.length > 0 || arrearOrUnclearedPaperIntent ||
+  const academicIntent = attendanceIntent || progressionIntent || gradeAverageIntent || convocationIntent || definitionsIntent || Boolean(clauseNumberMatch) || courseCodes.length > 0 || arrearOrUnclearedPaperIntent ||
     /\b(credit|course|subject|paper|prerequisite|curriculum|syllabus|semester|grading|grade|assessment|exam|examination|academic regulation|progression|registration|minor|speciali[sz]ation|elective|leave policy|medical leave|attendance policy)\b/i.test(question);
   if (!academicIntent) return [];
 
@@ -1492,7 +1500,7 @@ function retrieveAcademic(
   }
 
   if (definitionsIntent) {
-    // Clause 7 definitions span adjacent chunks on Handbook PDF page 10.
+    // The Academic Term definition spans adjacent chunks on Handbook PDF page 10.
     // Retrieve the complete page-level definition passages rather than relying on keyword ranking.
     ACADEMIC_KNOWLEDGE.documents
       .filter((document) => /Student Handbook/i.test(document.source || "") &&
@@ -1500,6 +1508,18 @@ function retrieveAcademic(
         /Definitions In these Regulations|Academic Calendar.*means|Academic Council.*means|Academic Term.*means/i.test(document.text || ""))
       .forEach(addDocument);
   }
+  if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "7") {
+    // Clause 7 spans Handbook PDF pages 29–30; include every chunk carrying
+    // its 7.1–7.6 provisions so a short "Clause 7" prompt is answerable.
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) =>
+        /Student Handbook/i.test(document.source || "") &&
+        (Number(document.page) === 29 || Number(document.page) === 30) &&
+        /\b7\.[1-6]\b/.test(document.text || "")
+      )
+      .forEach(addDocument);
+  }
+
   if (gradeAverageIntent) {
     const gradeAverageHandbook = ACADEMIC_KNOWLEDGE.documents.find((document) =>
       /Student Handbook/i.test(document.source || "") &&
@@ -2221,9 +2241,67 @@ export async function POST(request: Request) {
         : "**Semester "+requestedSemester+" courses for "+authenticatedStudent.name+" ("+authenticatedStudent.programme+", admission batch "+authenticatedStudent.admission_batch+")**\n\n| Course Code | Course Title | Credits | Result |\n| --- | --- | ---: | --- |\n"+ownSemesterRecords.map((record)=>"| "+record.course_code+" | "+record.course_title.replace(/\|/g,"\\|")+" | "+record.credits+" | "+(record.status||"Not recorded")+" |").join("\n")+"\n\nThese rows come from your authenticated synthetic student profile. They are fictional demonstration records, not an official VU transcript."
       : "No Semester "+requestedSemester+" course records are listed in the authenticated synthetic profile for "+authenticatedStudent.name+"."
     : undefined;
+  const profileCourseCode = requestedSyntheticCourseCode || extractCourseCodeCandidates(effectiveQuestion)[0];
+  const normalizedProfileCourseCode = String(profileCourseCode || "").replace(/[\s-]/g, "").toUpperCase();
+  const ownCourseRecord = normalizedProfileCourseCode
+    ? authenticatedStudent.academic_records.find((record) =>
+        String(record.course_code || "").replace(/[\s-]/g, "").toUpperCase() === normalizedProfileCourseCode
+      )
+    : undefined;
+  const asksOwnCourseCredits = Boolean(normalizedProfileCourseCode) &&
+    /\bcredits?\b/i.test(effectiveQuestion) &&
+    /\b(?:earn\w*|from|for|got|receiv\w*)\b/i.test(effectiveQuestion) &&
+    /\b(?:how many|how much|what)\b/i.test(effectiveQuestion);
+  const ownCourseCreditsAnswer = asksOwnCourseCredits
+    ? (() => {
+        const code = normalizedProfileCourseCode;
+        if (!ownCourseRecord) {
+          return "**Credits earned from " + code + "**\n\n" + code + " is not listed in your authenticated synthetic academic result records, so I cannot determine how many credits you have earned from it. This is fictional demonstration data, not an official VU transcript.";
+        }
+        const status = String(ownCourseRecord.status || "Not recorded").trim();
+        const passed = /^(?:passed|passed on repeat)$/i.test(status);
+        const earned = passed ? Number(ownCourseRecord.credits) || 0 : 0;
+        const attempts = Array.isArray(ownCourseRecord.attempts)
+          ? " Recorded attempts: " + ownCourseRecord.attempts.map((attempt) => "Semester " + attempt.semester + " — " + attempt.status).join("; ") + "."
+          : "";
+        return "**Credits earned from " + code + " — " + authenticatedStudent.name + "**\n\n" +
+          "**" + (ownCourseRecord.course_title || code) + "** is a " + ownCourseRecord.credits + "-credit course. " +
+          (passed
+            ? "Your profile records it as **" + status + "**, so you have earned **" + earned + " credits** from this course. The course credits are counted once, even when the record includes a repeat attempt."
+            : "Your profile records it as **" + status + "**, so you have currently earned **0 credits** from this course. The course's " + ownCourseRecord.credits + " credits count after successful completion.") +
+          attempts + "\n\nThis is calculated from your authenticated fictional demo profile, not an official VU credit statement.";
+      })()
+    : undefined;
+  const asksOwnCourseStatus = Boolean(normalizedProfileCourseCode) &&
+    /\b(?:backlogs?|arrears?|failed|passed|cleared?|status)\b/i.test(effectiveQuestion) &&
+    /\b(?:i|my|currently|have|am)\b/i.test(effectiveQuestion);
+  const ownCourseStatusAnswer = asksOwnCourseStatus
+    ? (() => {
+        const code = normalizedProfileCourseCode;
+        if (!ownCourseRecord) {
+          return "**" + code + " — personal record check**\n\n" + code + " is not listed in your authenticated synthetic academic result records, so I cannot confirm whether it is a current backlog. This is fictional demonstration data.";
+        }
+        const status = String(ownCourseRecord.status || "Not recorded").trim();
+        if (/^failed$/i.test(status)) {
+          return "**Yes. " + code + " is currently recorded as a backlog in your synthetic profile.**\n\n" +
+            (ownCourseRecord.course_title || code) + " is listed as **Failed** in Semester " + ownCourseRecord.semester + ".";
+        }
+        if (/^passed on repeat$/i.test(status)) {
+          const earlierFailed = Array.isArray(ownCourseRecord.attempts)
+            ? ownCourseRecord.attempts.find((attempt) => /^failed$/i.test(String(attempt.status || "")))
+            : undefined;
+          return "**No. " + code + " is not a current backlog in your synthetic profile.**\n\n" +
+            (ownCourseRecord.course_title || code) + " is recorded as **Passed on repeat**." +
+            (earlierFailed ? " The earlier failed attempt was in Semester " + earlierFailed.semester + "; the repeat pass is the current final result." : "") +
+            " Its credits are counted once.";
+        }
+        return "**No current backlog is recorded for " + code + " in your synthetic profile.**\n\n" +
+          (ownCourseRecord.course_title || code) + " is listed as **" + status + "** in Semester " + ownCourseRecord.semester + ".";
+      })()
+    : undefined;
   const asksDegreeCredits = /\b(?:total|minimum|required|degree|graduation|graduate|complete|completion)\b.{0,70}\bcredits?\b|\bcredits?\b.{0,70}\b(?:required|to graduate|for graduation|to complete|degree|total)\b|\bhow many credits? do i need to graduate\b|\bcredits? do i need to (?:graduate|complete my degree)\b/i.test(effectiveQuestion) &&
     (/\b(?:b\.?\s*tech|engineering|degree)\b/i.test(effectiveQuestion) || /\b(?:i|my|me)\b/i.test(effectiveQuestion));
-  const asksCompletedCredits=/\bhow\s+many\b.{0,50}\bcredits?\b|\bcompleted\s+credits?\b|\bcredit\s+total\b/i.test(effectiveQuestion) && !asksDegreeCredits;
+  const asksCompletedCredits=/\bhow\s+many\b.{0,50}\bcredits?\b|\bcompleted\s+credits?\b|\bcredit\s+total\b/i.test(effectiveQuestion) && !asksDegreeCredits && !asksOwnCourseCredits;
   const profilePassedRecords=getCompletedCourseRecords(authenticatedStudent.academic_records);
   const completedProfileCreditSummary=calculateCompletedCourseCredits(authenticatedStudent.academic_records);
   const profileCompletedCredits=completedProfileCreditSummary.total;
@@ -2411,6 +2489,45 @@ export async function POST(request: Request) {
   const gradeAverageComparisonAnswer = gradeAverageComparisonIntent && gradeAverageSourceIndex >= 0
     ? "**SGPA vs CGPA**\n\n- **SGPA (Semester Grade Point Average):** measures your weighted grade-point average for courses registered in one semester.\n- **CGPA (Cumulative Grade Point Average):** measures your cumulative weighted grade-point average across courses registered up to and including the latest completed semester.\n\nBoth are credit-weighted: multiply each course's credits by its grade point, add those products, then divide by the total credits of the included courses. The Handbook states that both are calculated to two decimal places. [Clauses 8.16–8.17]" + gradeAverageCitation + "\n\n**Remember:** SGPA is semester-specific; CGPA is cumulative."
     : undefined;
+  const gradeAverageCalculationIntent = /\b(?:calculat\w*|comput\w*|formula|work\s+out)\b/i.test(effectiveQuestion) &&
+    /\b(?:sgpa|cgpa)\b/i.test(effectiveQuestion);
+  const gradeAverageCalculationAnswer = gradeAverageCalculationIntent && gradeAverageSourceIndex >= 0
+    ? "**How SGPA and CGPA are calculated**\n\n**SGPA:** Add each registered course's credits multiplied by the grade points received in that semester, then divide by the total credits of the courses registered in that semester.\n\n**CGPA:** Apply the same weighted-average calculation across all courses registered up to and including the latest completed Semester or Academic Term.\n\nCourses with **F** or **FA** grades are included in the calculation with **zero grade points**. The Handbook states that both SGPA and CGPA are rounded to **two decimal places**." + gradeAverageCitation
+    : undefined;
+  const queryClauseMatch = effectiveQuestion.match(/\bclause\s*(?:no\.?\s*)?(\d{1,2}(?:\.\d{1,2})*)\b/i);
+  const requestedClauseNumber = queryClauseMatch?.[1];
+  const asksAcademicTermWithClause = /\bacademic\s+term\b/i.test(effectiveQuestion) && Boolean(requestedClauseNumber);
+  const academicTermDefinitionIndex = academicMatches.findIndex((document) =>
+    /Student Handbook/i.test(document.source || "") &&
+    Number(document.page) === 10 &&
+    /Academic Term.*means a Semester or Summer Term/i.test(document.text || "")
+  );
+  const clause7SourceIndices = academicMatches.map((document, index) => ({ document, index }))
+    .filter(({ document }) =>
+      /Student Handbook/i.test(document.source || "") &&
+      (Number(document.page) === 29 || Number(document.page) === 30) &&
+      /\b7\.[1-6]\b/.test(document.text || "")
+    )
+    .map(({ index }) => index);
+  const clause7QuestionIntent = requestedClauseNumber?.split(".")[0] === "7";
+  const clause7Citation = clause7SourceIndices.map((index) => " [" + (index + 1) + "]").join("");
+  const academicTermCitation = academicTermDefinitionIndex >= 0 ? " [" + (academicTermDefinitionIndex + 1) + "]" : "";
+  const clause7Answer = clause7QuestionIntent && clause7SourceIndices.length
+    ? "**Clause 7 — Attendance Requirements**\n\n" +
+      (asksAcademicTermWithClause
+        ? "The Handbook defines **Academic Term** separately in its Definitions section, item (d), as **a Semester or Summer Term**. That definition is not part of Clause 7." + academicTermCitation + "\n\n"
+        : "") +
+      "- **7.1:** Students must attend the curricular sessions prescribed by their programme.\n" +
+      "- **7.2:** At least **75% attendance in every registered course** is required to appear for the End-Term Examination.\n" +
+      "- **7.3:** Certain serious medical exigencies may qualify for additional relaxation with the specified documentation and approvals. Attendance cannot be reduced below **65%**.\n" +
+      "- **7.4:** A similar relaxation may apply to students selected to represent the State or India at specified events or competitions, subject to documentation and approval; the minimum remains **65%**.\n" +
+      "- **7.5:** Attendance requirements imposed by Government Regulatory Bodies also apply where relevant to a programme.\n" +
+      "- **7.6:** A student with an attendance shortfall cannot sit the End-Term Examination for the affected course and receives an **FA** grade; the Handbook warns this may result in loss of an Academic Year." +
+      clause7Citation
+    : undefined;
+  const academicTermClauseAnswer = asksAcademicTermWithClause && !clause7QuestionIntent && academicTermDefinitionIndex >= 0
+    ? "**Academic Term** means **a Semester or Summer Term** under item (d) in the Student Handbook's Definitions section. This definition is not stated under Clause " + requestedClauseNumber + "." + academicTermCitation
+    : undefined;
   const progressionRegistrationIndex = academicMatches.findIndex((document) =>
     /Student Handbook/i.test(document.source || "") && /2\.10\.1/.test(document.text || "")
   );
@@ -2424,7 +2541,7 @@ export async function POST(request: Request) {
     /Student Handbook/i.test(document.source || "") && Number(document.page)===43 && /12\.[45]/.test(document.text || "")
   ).map(({index})=>index);
   const progressionQuestionIntent = /\b(?:fail\w*|backlogs?|progress\w*|promot\w*|eligible)\b/i.test(effectiveQuestion) &&
-    /\b(?:semester|year|academic year)\b/i.test(effectiveQuestion);
+    (/\b(?:sem|semester)\s*\d{1,2}\b/i.test(effectiveQuestion) || /\b(?:semester|sem|year|academic year)\b/i.test(effectiveQuestion));
   const progressionAnswer = progressionQuestionIntent && progressionRegistrationIndex >= 0 && progressionCriteriaIndex >= 0
     ? (() => {
         const currentSemester=authenticatedStudent.current_semester;
@@ -2717,6 +2834,10 @@ const context=safeData(JSON.stringify({
     answer=profilePrivacyAnswer;
     modelUsed="Deterministic authenticated-profile identity and attachment-privacy guardrail";
     pipeline.push("Resolved identity from the signed session and blocked unverified uploaded academic records before model generation");
+  }else if(ownCourseStatusAnswer){
+    answer=ownCourseStatusAnswer;
+    modelUsed="Deterministic authenticated synthetic-profile course-status lookup";
+    pipeline.push("Checked the requested course status against the signed-in student's own academic record before general course-catalogue lookup");
   }else if(failedCourseAnswer){
     answer=failedCourseAnswer;
     modelUsed="Deterministic authenticated synthetic-profile failed-course lookup";
@@ -2745,10 +2866,22 @@ const context=safeData(JSON.stringify({
     answer=btechDegreeCreditAnswer;
     modelUsed="Deterministic official VU B.Tech programme-credit lookup";
     pipeline.push("Retrieved the 180-credit, eight-semester requirement from the official B.Tech programme-structure pages; kept it separate from synthetic credits earned");
+  }else if(clause7Answer){
+    answer=clause7Answer;
+    modelUsed="Deterministic Student Handbook Clause 7 lookup";
+    pipeline.push("Retrieved Clauses 7.1–7.6 and corrected the location of the Academic Term definition in the Handbook Definitions section");
+  }else if(academicTermClauseAnswer){
+    answer=academicTermClauseAnswer;
+    modelUsed="Deterministic Student Handbook definition lookup";
+    pipeline.push("Retrieved the Handbook definition of Academic Term and avoided attributing it to an unrelated clause");
   }else if(progressionAnswer){
     answer=progressionAnswer;
     modelUsed="Deterministic Student Handbook registration and progression lookup";
     pipeline.push("Retrieved Clauses 2.10, 2.11 and 12.1 and distinguished Semester 1-to-2 registration from yearly promotion to Semester 3");
+  }else if(gradeAverageCalculationAnswer){
+    answer=gradeAverageCalculationAnswer;
+    modelUsed="Deterministic Student Handbook SGPA/CGPA calculation lookup";
+    pipeline.push("Used Clauses 8.16–8.17 to explain the credit-weighted formulas, F/FA treatment and rounding");
   }else if(gradeAverageComparisonAnswer){
     answer=gradeAverageComparisonAnswer;
     modelUsed="Deterministic Student Handbook grading-rule explanation";
@@ -2775,6 +2908,10 @@ const context=safeData(JSON.stringify({
     answer=ownSemesterAnswer;
     modelUsed="Deterministic authenticated synthetic semester-record lookup";
     pipeline.push("Listed semester course rows directly from the currently authenticated synthetic student profile");
+  }else if(ownCourseCreditsAnswer){
+    answer=ownCourseCreditsAnswer;
+    modelUsed="Deterministic authenticated synthetic-profile course-credit lookup";
+    pipeline.push("Calculated credits earned for the named course from its final result status; did not substitute the student's overall credit total");
   }else if(completedCreditsAnswer){
     answer=completedCreditsAnswer;
     modelUsed="Deterministic batch-matched completed-credit calculation";

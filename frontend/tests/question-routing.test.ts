@@ -188,6 +188,86 @@ describe("academic question routing", () => {
     expect(result.error).toMatch(/GROQ_API_KEY is missing/i);
   });
 
+
+  it("answers a bare Clause 7 query with the actual Attendance Requirements provisions", async () => {
+    const result = await ask("clause 7");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 7 — Attendance Requirements/i);
+    expect(result.answer).toContain("75%");
+    expect(result.answer).toContain("65%");
+    expect(result.answer).toContain("FA");
+    expect(result.model).toMatch(/Clause 7 lookup/i);
+  });
+
+  it("places the Academic Term definition in Definitions rather than Clause 7", async () => {
+    const result = await ask("what is an academic term under clause 7");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Definitions section/i);
+    expect(result.answer).toMatch(/Semester or Summer Term/i);
+    expect(result.answer).toMatch(/not part of Clause 7/i);
+    expect(result.answer).toMatch(/Attendance Requirements/i);
+  });
+
+  it("corrects a mistaken Clause 6 reference to the Academic Term definition", async () => {
+    const result = await ask("what is an academic term under clause 6");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Definitions section/i);
+    expect(result.answer).toMatch(/Semester or Summer Term/i);
+    expect(result.answer).toMatch(/not stated under Clause 6/i);
+  });
+
+  it("answers informal SGPA and CGPA calculation wording without malformed formula markup", async () => {
+    const result = await ask("hwo are sgpa nd cgpa calculated");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/How SGPA and CGPA are calculated/i);
+    expect(result.answer).toMatch(/credits multiplied by the grade points/i);
+    expect(result.answer).toMatch(/F.*FA.*zero grade points/i);
+    expect(result.answer).toMatch(/two decimal places/i);
+    expect(result.answer).not.toMatch(/\\sum\{/i);
+  });
+
+  it("answers credits earned from one named course instead of returning the overall total", async () => {
+    const result = await ask("how many credits did i earn from COMP201", "SYN-107");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/4 credits/i);
+    expect(result.answer).toMatch(/Passed on repeat/i);
+    expect(result.answer).not.toMatch(/117 credits earned/i);
+  });
+
+  it("reports zero earned credits for a failed course in the signed-in profile", async () => {
+    const result = await ask("how many credits did i earn from COMP201", "SYN-106");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/currently earned \*\*0 credits\*\*/i);
+    expect(result.answer).toMatch(/Failed/i);
+    expect(result.answer).not.toMatch(/117 credits earned|113 credits earned/i);
+  });
+
+  it("checks whether a course is a current backlog before returning catalogue details", async () => {
+    const failed = await ask("do i currently have COMP201 as a backlog", "SYN-106");
+    expect(failed.status).toBe(200);
+    expect(failed.answer).toMatch(/Yes.*COMP201 is currently recorded as a backlog/i);
+    expect(failed.answer).toMatch(/Failed/i);
+    const repeated = await ask("do i currently have COMP201 as a backlog", "SYN-107");
+    expect(repeated.status).toBe(200);
+    expect(repeated.answer).toMatch(/No.*COMP201 is not a current backlog/i);
+    expect(repeated.answer).toMatch(/Passed on repeat/i);
+  });
+
+  it("understands informal 'form sem 3 to sem 4' progression wording", async () => {
+    const result = await ask("can i progress form sem 3 to sem4", "SYN-103");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 3.*Semester 4/i);
+    expect(result.answer).toMatch(/within the same Academic Year/i);
+    expect(result.answer).not.toMatch(/minimum of \*\*4\.00 CGPA\*\*/i);
+  });
+
+  it("answers a personal Semester 1 course-history question from the authenticated profile", async () => {
+    const result = await ask("what courses did i have in semester 1", "SYN-106");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 1 courses for Isha Kulkarni/i);
+    expect(result.answer).toContain("DATA103");
+  });
+
   it("continues to reject clearly unrelated general-knowledge questions", async () => {
     const result = await ask("What is the capital of France?");
     expect(result.status).toBe(200);
