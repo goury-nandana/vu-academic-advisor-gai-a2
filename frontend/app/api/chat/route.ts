@@ -5,6 +5,8 @@ import { buildCourseCodeIndex, extractCourseCodeCandidates, resolveCourseCodes }
 import { creditCalculationAgent, getSyntheticStudent, runAcademicAdvisorAgentWorkflow, type AgentWorkflowResult } from "../../../academic-agents";
 import { getAuthenticatedStudent } from "../../../lib/demo-auth";
 import { isPrivacyRedactedAttachment, sanitizeAttachmentForPrivacy } from "../../../lib/attachment-privacy";
+import { calculateCompletedCourseCredits, getCompletedCourseRecords, getCurrentlyFailedCourseRecords } from "../../../lib/academic-calculations";
+import { parsePrerequisiteExpression } from "../../../lib/prerequisites";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -1477,6 +1479,14 @@ function retrieveAcademic(
     );
     addDocument(registrationRules);
     addDocument(yearlyProgressionRules);
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) => /Student Handbook/i.test(document.source || "") &&
+        Number(document.page) === 42 && /12\.2/.test(document.text || ""))
+      .forEach(addDocument);
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) => /Student Handbook/i.test(document.source || "") &&
+        Number(document.page) === 43 && /12\.[45]/.test(document.text || ""))
+      .forEach(addDocument);
   }
 
   if (definitionsIntent) {
@@ -2163,19 +2173,18 @@ export async function POST(request: Request) {
   const profileCourseRecord=trackedProfileCourseCandidates.length>0&&prerequisiteVariants.length===1
     ? trackedProfileCourseCandidates[0]
     : undefined;
-  const profileCoursePrerequisites=profileCourseRecord&&String(profileCourseRecord.prerequisite||"").trim()&&!/^(?:nil|none|na|n\/a|-)$/i.test(String(profileCourseRecord.prerequisite||"").trim())
-    ? String(profileCourseRecord.prerequisite).split(/[,;]+/).map((code)=>code.replace(/[\s-]/g,"").toUpperCase()).filter(Boolean)
-    : [];
+  const profileCoursePrerequisiteParse=parsePrerequisiteExpression(profileCourseRecord?.prerequisite);
+  const profileCoursePrerequisites=profileCoursePrerequisiteParse.codes;
+  const profileCourseAmbiguousPrerequisiteGroups=profileCoursePrerequisiteParse.ambiguousSlashGroups;
+  const profilePrerequisiteWorkbookRows=profileCoursePrerequisites.map((code)=>ACADEMIC_KNOWLEDGE.courseRecords.find((record)=>
+    String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()===code&&
+    String(record.batch||"")===authenticatedStudent.admission_batch&&
+    record.document_type==="semester_spread"&&record.is_course_record!==false&&
+    String(record.programme||"").toLowerCase()==="b.tech"
+  ));
+  const missingProfilePrerequisiteWorkbookCodes=profileCoursePrerequisites.filter((code,index)=>!profilePrerequisiteWorkbookRows[index]);
   const profilePrerequisiteEvidenceRecords:CourseRecord[]=profileCourseRecord
-    ? [profileCourseRecord,...profileCoursePrerequisites.flatMap((code)=>{
-        const row=ACADEMIC_KNOWLEDGE.courseRecords.find((record)=>
-          String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()===code&&
-          String(record.batch||"")===authenticatedStudent.admission_batch&&
-          record.document_type==="semester_spread"&&record.is_course_record!==false&&
-          String(record.programme||"").toLowerCase()==="b.tech"
-        );
-        return row?[row]:[];
-      })]
+    ? [profileCourseRecord,...profilePrerequisiteWorkbookRows.flatMap((row)=>row?[row]:[])]
     : [];
   const explicitRequestedSemester=extractCourseSemester(effectiveQuestion);
   const asksAllMyCourses=/\b(?:all\s+)?(?:my|our)\s+(?:all\s+)?(?:courses?|subjects?)\b/i.test(effectiveQuestion);
@@ -2213,8 +2222,9 @@ export async function POST(request: Request) {
   const asksDegreeCredits = /\b(?:total|minimum|required|degree|graduation|graduate|complete|completion)\b.{0,70}\bcredits?\b|\bcredits?\b.{0,70}\b(?:required|to graduate|for graduation|to complete|degree|total)\b|\bhow many credits? do i need to graduate\b|\bcredits? do i need to (?:graduate|complete my degree)\b/i.test(effectiveQuestion) &&
     (/\b(?:b\.?\s*tech|engineering|degree)\b/i.test(effectiveQuestion) || /\b(?:i|my|me)\b/i.test(effectiveQuestion));
   const asksCompletedCredits=/\bhow\s+many\b.{0,50}\bcredits?\b|\bcompleted\s+credits?\b|\bcredit\s+total\b/i.test(effectiveQuestion) && !asksDegreeCredits;
-  const profilePassedRecords=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="passed");
-  const profileCompletedCredits=profilePassedRecords.reduce((sum,record)=>sum+Number(record.credits||0),0);
+  const profilePassedRecords=getCompletedCourseRecords(authenticatedStudent.academic_records);
+  const completedProfileCreditSummary=calculateCompletedCourseCredits(authenticatedStudent.academic_records);
+  const profileCompletedCredits=completedProfileCreditSummary.total;
   const completedCreditResult=asksCompletedCredits
     ? {total:profileCompletedCredits,courseCodes:profilePassedRecords.map((record)=>record.course_code),missing:[]}
     : undefined;
@@ -2222,8 +2232,9 @@ export async function POST(request: Request) {
     ? "**Completed credits for "+authenticatedStudent.name+" ("+authenticatedStudent.admission_batch+" admission batch)**\n\nYou have **"+completedCreditResult.total+" credits earned** across **"+completedCreditResult.courseCodes.length+" passed course records** in your authenticated synthetic profile. Failed and in-progress courses are excluded.\n\nThis is calculated directly from the fictional demo profile, not an official university credit statement."
     : undefined;
   const asksProgressSnapshot=/\b(?:academic progress(?:ion)?|my academic progress(?:ion)?|progress snapshot|progression summary|how am i doing academically|confused about my academic progress|progress through semesters)\b/i.test(effectiveQuestion);
-  const progressPassedCredits=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="passed").reduce((sum,record)=>sum+Number(record.credits||0),0);
-  const progressFailedCredits=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed").reduce((sum,record)=>sum+Number(record.credits||0),0);
+  const progressPassedCredits=calculateCompletedCourseCredits(authenticatedStudent.academic_records).total;
+  const progressFailedCourseRecords=getCurrentlyFailedCourseRecords(authenticatedStudent.academic_records);
+  const progressFailedCredits=progressFailedCourseRecords.reduce((sum,record)=>sum+Number(record.credits||0),0);
   const progressInProgressCredits=authenticatedStudent.academic_records.filter((record)=>/in progress/i.test(String(record.status||""))).reduce((sum,record)=>sum+Number(record.credits||0),0);
   const progressionSummaryAnswer=asksProgressSnapshot
     ? "**Academic progress summary — "+authenticatedStudent.name+" ("+authenticatedStudent.programme+", batch "+authenticatedStudent.admission_batch+")**\n\n| Semester | Course | Credits | Result |\n| --- | --- | ---: | --- |\n"+authenticatedStudent.academic_records.slice().sort((a,b)=>a.semester-b.semester).map((record)=>"| "+record.semester+" | "+record.course_code+" — "+record.course_title.replace(/\|/g,"\\|")+" | "+record.credits+" | "+(record.status||"Not recorded")+" |").join("\n")+"\n\n**Profile totals (calculated from the records above)**\n\n- Credits earned from passed courses: **"+progressPassedCredits+"**\n- Credits tied to failed courses: **"+progressFailedCredits+"**\n- Credits currently in progress: **"+progressInProgressCredits+"**\n- Synthetic CGPA: **"+(authenticatedStudent.synthetic_cgpa===null?"Not provided":authenticatedStudent.synthetic_cgpa)+"**\n- Backlog courses: **"+authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed").map((record)=>record.course_code+" ("+record.course_title+")").join(", ")+"**\n\nThis is fictional demo data. Earned credits exclude failed and in-progress courses. Confirm registration and progression rules with your Faculty Advisor; this response does not determine eligibility."
