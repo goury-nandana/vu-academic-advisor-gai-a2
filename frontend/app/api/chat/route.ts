@@ -1420,7 +1420,7 @@ function retrieveAcademic(
   }
   if (isMinorQuestion(question)) return retrieveNonBtechMinorContext();
   const courseCodes = extractCourseCodeCandidates(question);
-  const progressionIntent = /\b(?:fail|failed|backlog|progress|progression|promot|promotion|eligible)\b/i.test(question) &&
+  const progressionIntent = /\b(?:fail\w*|backlogs?|progress\w*|promot\w*|eligible)\b/i.test(question) &&
     /\b(?:semester|year|academic year)\b/i.test(question);
   const gradeAverageIntent = /\b(?:cgpa|sgpa|grade point average)\b/i.test(question);
   const convocationIntent = /\bconvocation\b/i.test(question);
@@ -2418,12 +2418,12 @@ export async function POST(request: Request) {
     /Student Handbook/i.test(document.source || "") && /12\.1/.test(document.text || "") && /Minimum CGPA of 4\.00/.test(document.text || "")
   );
   const progressionResultsIndex = academicMatches.findIndex((document) =>
-    /Student Handbook/i.test(document.source || "") && /12\.2/.test(document.text || "") && /Make.?Up Examinations/.test(document.text || "")
+    /Student Handbook/i.test(document.source || "") && /12\.2/.test(document.text || "") && /Summer Term/.test(document.text || "")
   );
   const progressionOptionsIndices = academicMatches.map((document,index)=>({document,index})).filter(({document}) =>
     /Student Handbook/i.test(document.source || "") && Number(document.page)===43 && /12\.[45]/.test(document.text || "")
   ).map(({index})=>index);
-  const progressionQuestionIntent = /\b(?:fail|failed|backlog|progress|progression|promot|promotion|eligible)\b/i.test(effectiveQuestion) &&
+  const progressionQuestionIntent = /\b(?:fail\w*|backlogs?|progress\w*|promot\w*|eligible)\b/i.test(effectiveQuestion) &&
     /\b(?:semester|year|academic year)\b/i.test(effectiveQuestion);
   const progressionAnswer = progressionQuestionIntent && progressionRegistrationIndex >= 0 && progressionCriteriaIndex >= 0
     ? (() => {
