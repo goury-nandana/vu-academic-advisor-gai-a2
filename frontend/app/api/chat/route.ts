@@ -2403,10 +2403,73 @@ export async function POST(request: Request) {
   const progressionCriteriaIndex = academicMatches.findIndex((document) =>
     /Student Handbook/i.test(document.source || "") && /12\.1/.test(document.text || "") && /Minimum CGPA of 4\.00/.test(document.text || "")
   );
+  const progressionResultsIndex = academicMatches.findIndex((document) =>
+    /Student Handbook/i.test(document.source || "") && /12\.2/.test(document.text || "") && /Make.?Up Examinations/.test(document.text || "")
+  );
+  const progressionOptionsIndices = academicMatches.map((document,index)=>({document,index})).filter(({document}) =>
+    /Student Handbook/i.test(document.source || "") && Number(document.page)===43 && /12\.[45]/.test(document.text || "")
+  ).map(({index})=>index);
   const progressionQuestionIntent = /\b(?:fail|failed|backlog|progress|progression|promot|promotion|eligible)\b/i.test(effectiveQuestion) &&
     /\b(?:semester|year|academic year)\b/i.test(effectiveQuestion);
   const progressionAnswer = progressionQuestionIntent && progressionRegistrationIndex >= 0 && progressionCriteriaIndex >= 0
-    ? "**Semester 1 to Semester 2 after one failed course**\n\nThe Student Handbook does not state that one failed Semester 1 course automatically prevents registration for Semester 2. Clause 2.10 says next-Semester registration requires payment of the specified fees, clearance of University/Hostel/Transport/Library dues, and no registration debarment. [" + (progressionRegistrationIndex + 1) + "]\n\nClause 2.11 applies the yearly progression criteria in Clause 12.1 when registering at the start of the next Academic Year. Clause 12.1 sets a minimum CGPA of **4.00 for progression to Year 2 (Semester 3)** and **5.00 for Year 3 and higher**. It does not set a separate CGPA threshold for moving from Semester 1 to Semester 2. [" + (progressionCriteriaIndex + 1) + "]\n\nTherefore, based on these Handbook clauses, one failed course alone is not listed as an automatic bar to Semester 2; the student must still meet the applicable registration conditions. Check the relevant B.Tech Programme Regulations and Faculty Advisor for any additional programme-specific rule."
+    ? (() => {
+        const currentSemester=authenticatedStudent.current_semester;
+        const studentLabel=authenticatedStudent.name+" ("+authenticatedStudent.username+")";
+        const activeFailures=getCurrentlyFailedCourseRecords(authenticatedStudent.academic_records);
+        const repeatPasses=authenticatedStudent.academic_records.filter((record)=>
+          String(record.status||"").trim().toLowerCase()==="passed on repeat"&&
+          Array.isArray(record.attempts)&&record.attempts.some((attempt)=>String(attempt.status||"").trim().toLowerCase()==="failed")
+        );
+        const failureSummary=activeFailures.length
+          ? "**Currently failed course(s) in your synthetic profile:** "+activeFailures.map((record)=>record.course_code+" (Semester "+record.semester+")").join(", ")+"."
+          : "**Currently failed courses:** None are marked Failed in your current synthetic profile.";
+        const repeatSummary=repeatPasses.length
+          ? "\n\n**Previously failed but passed on repeat:** "+repeatPasses.map((record)=>{
+              const history=(record.attempts||[]).map((attempt)=>"Semester "+attempt.semester+": "+attempt.status).join("; ");
+              return record.course_code+" ("+history+")";
+            }).join(", ")+". These are not counted as current failed courses."
+          : "";
+        if(currentSemester===null) {
+          return "**Progression check for "+studentLabel+"**\n\nYour authenticated synthetic profile is marked Graduated and has no current semester. I cannot calculate a next-semester progression from this profile.\n\n"+failureSummary+repeatSummary;
+        }
+        const targetSemester=Number(currentSemester)+1;
+        if(!Number.isInteger(currentSemester)||currentSemester<1||targetSemester>8) {
+          return "**Progression check for "+studentLabel+"**\n\nYour profile is recorded in Semester "+currentSemester+" and does not provide a next semester within the eight-semester B.Tech plan represented in this demo. Confirm your official academic standing with the Registrar or Faculty Advisor.\n\n"+failureSummary+repeatSummary;
+        }
+        const currentYear=Math.ceil(Number(currentSemester)/2);
+        const targetYear=Math.ceil(targetSemester/2);
+        const crossingAcademicYear=targetYear!==currentYear;
+        const registrationCitation=" ["+(progressionRegistrationIndex+1)+"]";
+        const criteriaCitation=" ["+(progressionCriteriaIndex+1)+"]";
+        const resultsCitation=progressionResultsIndex>=0?" ["+(progressionResultsIndex+1)+"]":"";
+        const optionsCitations=progressionOptionsIndices.map((index)=>" ["+(index+1)+"]").join("");
+        let answer="**Progression check for "+studentLabel+"**\n\nYour profile shows **Semester "+currentSemester+"**. The next semester in sequence is **Semester "+targetSemester+"** (Academic Year "+targetYear+").\n\n";
+        if(!crossingAcademicYear) {
+          answer+="This move stays **within the same Academic Year**. Clause 12.1 describes CGPA thresholds for yearly promotion at the start of the concerned Academic Year; it does not set a separate year-promotion CGPA threshold for this within-year semester move."+criteriaCitation+"\n\n";
+          answer+="For next-semester registration, Clause 2.10 lists these conditions: specified fees paid, University/Hostel/Transport/Library dues cleared, and no University registration debarment."+registrationCitation+"\n\n";
+          answer+="The cited clauses do not specify a maximum number of failed courses for this within-year move. A failed course remains unresolved in your profile and must be addressed separately; this response is not registration approval. Programme-specific regulations may add conditions.\n\n";
+        } else {
+          const minimumCgpa=targetSemester===3?4:5;
+          answer+="This move begins **Academic Year "+targetYear+"**, so the Handbook's yearly promotion CGPA criterion applies. Clause 12.1 sets a minimum of **"+minimumCgpa.toFixed(2)+" CGPA** for progression to this stage."+criteriaCitation+"\n\n";
+          const cgpa=authenticatedStudent.synthetic_cgpa;
+          if(cgpa===null||!Number.isFinite(Number(cgpa))) {
+            answer+="Your synthetic profile does not provide a CGPA, so I cannot assess whether the numerical threshold is met. The Handbook says the CGPA requirement is assessed after results from the concerned semester, Make-Up Examinations and Summer Term, as applicable."+resultsCitation+"\n\n";
+          } else if(Number(cgpa)>=minimumCgpa) {
+            answer+="Your profile's **demo CGPA is "+cgpa+"**, which is above the stated "+minimumCgpa.toFixed(2)+" numerical threshold. This is only a comparison against the fictional profile value, not confirmation of official promotion or registration. The Handbook specifies that the CGPA is assessed after the concerned semester results, Make-Up Examinations and Summer Term, as applicable."+resultsCitation+"\n\n";
+          } else {
+            answer+="Your profile's **demo CGPA is "+cgpa+"**, which is below the stated "+minimumCgpa.toFixed(2)+" numerical threshold. This profile value is fictional; the Handbook says the criterion is assessed after the concerned semester results, Make-Up Examinations and Summer Term, as applicable."+resultsCitation+"\n\n";
+            if(progressionOptionsIndices.length) {
+              answer+="If a student is not eligible for yearly progression, Clauses 12.3–12.5 describe two options: repeat the concerned Academic Year (both Odd and Even Semesters), or re-register for selected courses in the next Academic Year to earn required credits and improve CGPA."+optionsCitations+"\n\n";
+            }
+          }
+          answer+="Clause 2.10's fees, dues and debarment conditions also apply to next-semester registration."+registrationCitation+" ";
+          if(activeFailures.length) answer+="The "+activeFailures.length+" currently failed course(s) listed below are not erased by meeting the CGPA threshold; they remain to be resolved under the applicable course/re-registration rules. ";
+          answer+="The cited yearly progression clause states a CGPA threshold, not a separate maximum failed-course count. Programme-specific regulations may add conditions.\n\n";
+        }
+        answer+=failureSummary+repeatSummary;
+        answer+="\n\nThis is a deterministic comparison against your authenticated fictional profile and the August 2026 Student Handbook. It is not an official progression decision.";
+        return answer;
+      })()
     : undefined;
   const convocationSourceIndex = academicMatches.findIndex((document) =>
     /Convocation/i.test(document.text || "") && /held annually/i.test(document.text || "") && /Degrees shall be awarded in person/i.test(document.text || "")
