@@ -781,7 +781,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
     /\b(?:fail|failed|failing)\b.{0,45}\b(?:paper|course|subject)\b/i.test(question) ||
     /\b(?:paper|course|subject)\b.{0,45}\b(?:fail|failed|arrear|backlog)\b/i.test(question);
   const illnessRelatedAbsenceIntent =
-    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(question) ||
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
   const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick)\b/i.test(question) ||
@@ -1360,7 +1360,7 @@ function retrieveAcademic(
   const query = queryWords(question);
   const attendanceIntent =
     /\b(attendance|attend|absen(?:ce|t)?|condonation|shortage|present|minimum attendance)\b/i.test(question) ||
-    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(question) ||
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
   if (isBtechMinorQuestion(question) || (isMinorQuestion(question) && isBtechProgramme(programme))) {
@@ -2362,7 +2362,7 @@ const context=safeData(JSON.stringify({
   let answer:string;
   const attendanceIntent =
     /\b(attendance|attend\w*|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion) ||
-    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(effectiveQuestion) ||
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(effectiveQuestion) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(effectiveQuestion) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(effectiveQuestion);
   const deterministicAttendance=attendanceIntent
