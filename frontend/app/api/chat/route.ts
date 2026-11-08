@@ -1303,6 +1303,8 @@ function syntheticAgentWorkflowAnswer(
   answer+="- **Profile check:** "+status+".\n";
   if(result.failedPrerequisites.length) answer+="- **Failed prerequisites recorded:** "+result.failedPrerequisites.join(", ")+".\n";
   if(result.unverifiedPrerequisites.length) answer+="- **Prerequisites not established by this profile:** "+result.unverifiedPrerequisites.join(", ")+".\n";
+  if(result.ambiguousPrerequisiteGroups.length) answer+="- **Ambiguous workbook notation:** "+result.ambiguousPrerequisiteGroups.map((group)=>group.join("/")).join("; ")+" uses a slash, but the workbook does not define whether the courses are alternatives or jointly required.\n";
+  if(result.missingPrerequisiteRows.length) answer+="- **Missing same-batch prerequisite rows:** "+result.missingPrerequisiteRows.join(", ")+". These could not be verified in the supplied admission-batch dataset.\n";
   answer+="- **Calculated completed-course credits:** "+result.calculatedCredits+" credits across "+result.creditCourseCodes.length+" completed course rows with matching "+result.student.admission_batch+" workbook records.";
   if(result.missingCreditRecords.length) answer+=" The following profile codes had no matching credit row and were excluded: "+result.missingCreditRecords.join(", ")+".";
   answer+="\n\n**Recommendation:** "+result.recommendation;
