@@ -714,10 +714,6 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
   if (/^thanks\b/.test(normalized) && normalized.length > 10) {
     return "You’re welcome! What were you looking for? I’m happy to help with courses, prerequisites, credits or your academic progress.";
   }
-  // A bare single word is ambiguous: ask what the student means
-  if (/^[a-z0-9][a-z0-9’-]*$/i.test(normalized)) {
-    return "Could you clarify what you mean by **" + normalized + "**? Are you asking about a B.Tech course, your student profile, or something else?";
-  }
   return undefined;
 }
 
@@ -773,7 +769,28 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
   if (/\bweather\b|\btemperature\b|\bforecast\b/.test(normalized)) {
     return "I can help with Vidyashilp University academic information, but I do not have live weather data for the campus. Please check a weather service for current conditions.";
   }
-  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|fail(?:ed|ure)?|acdemic|digii|bms|b\.?tech|b\.a\.|b\.des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic)\b/i.test(question) || /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) || extractCourseCodeCandidates(question).length > 0 ||
+  const normalizedSingleWord = titleWords(question).filter((word) => !COURSE_TITLE_GENERIC_WORDS.has(word));
+  const singleWordCourseTitle = normalizedSingleWord.length === 1 &&
+    normalizedSingleWord[0].length >= 4 &&
+    ACADEMIC_KNOWLEDGE.courseRecords.some((record) =>
+      titleWords(record.course_title).includes(normalizedSingleWord[0])
+    );
+  const arrearOrUnclearedPaperIntent =
+    /\b(?:arrears?|backlogs?|reappear(?:ance)?|retake|resit)\b/i.test(question) ||
+    /\b(?:could not|couldn't|did not|didn't)\s+clear\b/i.test(question) ||
+    /\b(?:fail|failed|failing)\b.{0,45}\b(?:paper|course|subject)\b/i.test(question) ||
+    /\b(?:paper|course|subject)\b.{0,45}\b(?:fail|failed|arrear|backlog)\b/i.test(question);
+  const illnessRelatedAbsenceIntent =
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(question) ||
+    /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
+    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
+  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick)\b/i.test(question) ||
+    /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) ||
+    extractCourseCodeCandidates(question).length > 0 ||
+    mentionsKnownCourseTitle(question) ||
+    singleWordCourseTitle ||
+    arrearOrUnclearedPaperIntent ||
+    illnessRelatedAbsenceIntent ||
     /\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(question) ||
     (/\b(?:lecture|tutorial|practical|structure|details?)\b/i.test(question) && mentionsKnownCourseTitle(question));
   // Also allow personal academic profile questions and app-feature requests that
@@ -916,7 +933,13 @@ function findStructuredCourseSearch(
     /\b(?:list|show|what|which|all|offered|taught|included)\b/i.test(question) &&
     !/\b(?:fail|failed|backlog|progress|progression|eligible|eligibility|promot|promotion)\b/i.test(question) &&
     hasBtechContext;
-  const courseDetailsIntent = requestedCodes.length > 0 ||
+  const bareExactCourseTitle = requestedTitles.some((title) =>
+    titleWords(title).length === 1 &&
+    titleWords(title)[0].length >= 4 &&
+    titleWords(question).length === 1 &&
+    titleWords(question)[0] === titleWords(title)[0]
+  );
+  const courseDetailsIntent = requestedCodes.length > 0 || bareExactCourseTitle ||
     (requestedTitles.length > 0 &&
       (/\b(?:course|subject|code|prerequisite|pre-requisite|credits?|l[\s-]*t[\s-]*p|semester|details?)\b/i.test(question) ||
        /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question)));
@@ -1335,7 +1358,11 @@ function retrieveAcademic(
 ): AcademicDocument[] {
   if (structuredCourseSearch) return structuredCourseSearch.documents;
   const query = queryWords(question);
-  const attendanceIntent = /\b(attendance|attend|absen(?:ce|t)?|condonation|shortage|present|minimum attendance)\b/i.test(question);
+  const attendanceIntent =
+    /\b(attendance|attend|absen(?:ce|t)?|condonation|shortage|present|minimum attendance)\b/i.test(question) ||
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(question) ||
+    /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
+    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
   if (isBtechMinorQuestion(question) || (isMinorQuestion(question) && isBtechProgramme(programme))) {
     return retrieveBtechMinorBatches(getBtechMinorBatches(question));
   }
@@ -1347,11 +1374,19 @@ function retrieveAcademic(
   const convocationIntent = /\bconvocation\b/i.test(question);
   const definitionsIntent = /\b(?:definition|definitions|define|meaning|what is|what does)\b/i.test(question) &&
     /\b(?:academic calendar|academic council|academic regulations|academic term|board of governors|act|regulatory bodies|programme regulations|definitions)\b/i.test(question);
-  const academicIntent = attendanceIntent || progressionIntent || gradeAverageIntent || convocationIntent || definitionsIntent || courseCodes.length > 0 ||
-    /\b(credit|course|prerequisite|curriculum|syllabus|semester|grading|grade|assessment|exam|examination|academic regulation|progression|registration|minor|speciali[sz]ation|elective|leave policy|medical leave|attendance policy)\b/i.test(question);
+  const arrearOrUnclearedPaperIntent =
+    /\b(?:arrears?|backlogs?|reappear(?:ance)?|retake|resit)\b/i.test(question) ||
+    /\b(?:could not|couldn't|did not|didn't)\s+clear\b/i.test(question) ||
+    /\b(?:fail|failed|failing)\b.{0,45}\b(?:paper|course|subject)\b/i.test(question) ||
+    /\b(?:paper|course|subject)\b.{0,45}\b(?:fail|failed|arrear|backlog)\b/i.test(question);
+  const academicIntent = attendanceIntent || progressionIntent || gradeAverageIntent || convocationIntent || definitionsIntent || courseCodes.length > 0 || arrearOrUnclearedPaperIntent ||
+    /\b(credit|course|subject|paper|prerequisite|curriculum|syllabus|semester|grading|grade|assessment|exam|examination|academic regulation|progression|registration|minor|speciali[sz]ation|elective|leave policy|medical leave|attendance policy)\b/i.test(question);
   if (!academicIntent) return [];
 
   const expanded = new Set(query);
+  if (arrearOrUnclearedPaperIntent) {
+    ["arrear","arrears","backlog","backlogs","failed","failure","reappear","repeat","retake","resit","registration","progression","semester","course","subject","paper"].forEach((word) => expanded.add(word));
+  }
   if (attendanceIntent) {
     ["attendance","attend","absence","absent","condonation","shortage","present","minimum","percentage","required","classes","class","medical","hospitalization","trauma","contagious"].forEach((word) => expanded.add(word));
   }
@@ -2325,7 +2360,11 @@ const context=safeData(JSON.stringify({
   pipeline.push("Built a source-grounded prompt prioritising VU academic documents and explicit untrusted-content boundaries");
   let visualization: any;
   let answer:string;
-  const attendanceIntent=/\b(attendance|attend\w*|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion);
+  const attendanceIntent =
+    /\b(attendance|attend\w*|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion) ||
+    /\b(?:miss|missed|missing)\s+(?:a\s+)?classes?\b/i.test(effectiveQuestion) ||
+    /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(effectiveQuestion) ||
+    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(effectiveQuestion);
   const deterministicAttendance=attendanceIntent
     ? (attendancePolicyAnswer(academicMatches,effectiveQuestion) || "I could not retrieve the applicable attendance clause from the supplied Student Handbook/SOP excerpts. I will not guess the eligibility threshold. Please check the August 2026 Student Handbook, Clauses 7.2–7.6, and confirm the final course-wise Digii figure with your Faculty Advisor.")
     : undefined;
