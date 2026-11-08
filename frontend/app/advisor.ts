@@ -70,13 +70,14 @@ export async function askAdvisor(input: {
 }
 
 
-export async function transcribeVoice(file: File): Promise<string> {
+export async function transcribeVoice(file: File, expectedProfileId?: string): Promise<string> {
   const form = new FormData();
   form.append("file", file, file.name);
   const response = await fetch("/api/transcribe", {
     method: "POST",
     body: form,
     cache: "no-store",
+    headers: expectedProfileId ? { "x-expected-profile-id": expectedProfileId } : undefined,
   });
   const data = await response.json().catch(() => ({})) as { text?: string; error?: string };
   if (!response.ok) {
