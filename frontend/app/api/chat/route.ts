@@ -522,7 +522,8 @@ function normalizeAcademicTypos(question: string): string {
     .replace(/\bahve\b/gi, "have")
     .replace(/\bspecialsation\b/gi, "specialisation")
     .replace(/\bform(?=\s+(?:sem(?:ester)?|semester)\s*\d)/gi, "from")
-    .replace(/\bsem(?=\s*\d)/gi, "semester");
+    .replace(/\bsem(?=\s*\d)/gi, "semester")
+    .replace(/\bsem\b/gi, "semester");
 }
 
 function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = [], student?: { name: string; username: string; synthetic_student_id: string; programme?: string; admission_batch?: string; current_semester?: number | null; academic_status?: string; synthetic_cgpa?: number | null }): string | undefined {  const normalized = question.trim().toLowerCase()    .replace(/(.)\1{2,}/g, "$1")
@@ -837,7 +838,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
     /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
     /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
-  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick|clauses?|regulations?)\b/i.test(question) || /\bclause\s*\d{1,2}\b/i.test(question) ||
+  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|arrears?|paper|fail(?:ed|ure|ing)?|acdemic|digii|bms|b\.?tech|b\.?a\.|b\.?des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic|class|medical|illness|sick|clauses?|regulations?|progress(?:ion)?)\b/i.test(question) || /\bclause\s*\d{1,2}\b/i.test(question) ||
     /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) ||
     extractCourseCodeCandidates(question).length > 0 ||
     mentionsKnownCourseTitle(question) ||
@@ -1536,6 +1537,30 @@ function retrieveAcademic(
         /Student Handbook/i.test(document.source || "") &&
         (Number(document.page) === 42 || Number(document.page) === 43) &&
         /\b12\.[1-5](?:\.\d+)?\b/.test(document.text || "")
+      )
+      .forEach(addDocument);
+  }
+
+  if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "11") {
+    // Clause 11 (Summer Term) is in Handbook PDF page 40. Include all chunks
+    // containing 11.1–11.3 so the split final sentence in 11.3 is available.
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) =>
+        /Student Handbook/i.test(document.source || "") &&
+        Number(document.page) === 40 &&
+        /\b11\.[1-3]\b/.test(document.text || "")
+      )
+      .forEach(addDocument);
+  }
+  if (clauseNumberMatch && clauseNumberMatch[1].split(".")[0] === "15") {
+    // Clause 15 (Award of Degree) is on page 46; page 47 finishes sub-clause 15.4.
+    ACADEMIC_KNOWLEDGE.documents
+      .filter((document) =>
+        /Student Handbook/i.test(document.source || "") &&
+        (
+          (Number(document.page) === 46 && /\b15\.[1-4]\b/.test(document.text || "")) ||
+          (Number(document.page) === 47 && /award of the Degree in the concerned Program/i.test(document.text || ""))
+        )
       )
       .forEach(addDocument);
   }
@@ -2542,19 +2567,50 @@ export async function POST(request: Request) {
       (Number(document.page) === 42 || Number(document.page) === 43) &&
       /\b12\.[1-5](?:\.\d+)?\b/.test(document.text || "")
     ).map(({index}) => index);
+  const clause11SourceIndices = academicMatches.map((document, index) => ({document,index}))
+    .filter(({document}) =>
+      /Student Handbook/i.test(document.source || "") &&
+      Number(document.page) === 40 &&
+      /\b11\.3\b/.test(document.text || "")
+    ).map(({index}) => index);
+  const clause15SourceIndices = academicMatches.map((document, index) => ({document,index}))
+    .filter(({document}) =>
+      /Student Handbook/i.test(document.source || "") &&
+      (
+        (Number(document.page) === 46 && /\b15\.[1-4]\b/.test(document.text || "")) ||
+        (Number(document.page) === 47 && /award of the Degree in the concerned Program/i.test(document.text || ""))
+      )
+    ).map(({index}) => index);
+  const clause11Answer = requestedClauseNumber === "11.3" && clause11SourceIndices.length
+    ? "**Clause 11.3 — Summer Term registration**\\n\\n" +
+      "The details of the Summer Term registration process will be announced on the dates scheduled in the Academic Calendar or through a University Notification." +
+      clause11SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
+    : undefined;
+  const clause15Answer = requestedClauseRoot === "15" && clause15SourceIndices.length
+    ? "**Clause 15 — Award of Degree**\\n\\n" +
+      "- **15.1:** The Registrar (Evaluation) recommends the award of the degree to the Academic Council for approval. The Academic Council then submits its recommendation to the Board of Management and Board of Governors.\\n" +
+      "- **15.2:** A student is eligible for the degree only after meeting all the listed conditions:\\n" +
+      "  - **15.2.1:** Complete the minimum credits and all other mandatory requirements in the applicable Programme Regulations.\\n" +
+      "  - **15.2.2:** Obtain a minimum **CGPA of 5.00** when all degree requirements are completed.\\n" +
+      "  - **15.2.3:** Clear all University, School, Hostel, Library and other University dues.\\n" +
+      "  - **15.2.4:** Have no pending disciplinary action.\\n" +
+      "- **15.3 — Distinction:** A **CGPA of 8.50 or above** qualifies for the Degree with Distinction.\\n" +
+      "- **15.4 — Provisional Degree Certificate:** After completing Clause 15.2 requirements, the student may apply to the Registrar with the prescribed form and fee. The Registrar (Evaluation) issues the certificate after verification; the degree is conferred at the next Convocation." +
+      clause15SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
+    : undefined;
   const clause4Answer = requestedClauseRoot === "4" && clause4SourceIndices.length
-    ? "**Clause 4 — Program Regulations**\\n\\n" +
-      "Clause 4 defines Program Regulations as the programme-specific regulations and curriculum for a degree programme. It says these regulations are recommended by the concerned Board of Studies for Academic Council approval.\\n\\n" +
-      "- **4.1:** They cover programme-specific admission criteria, programme duration, mandatory minimum credits for the degree, assessment and evaluation guidelines, applicable regulatory-body requirements, qualification types/titles, and the process for recommending and approving qualifications.\\n" +
+    ? "**Clause 4 — Program Regulations**\n\n" +
+      "Clause 4 defines Program Regulations as the programme-specific regulations and curriculum for a degree programme. It says these regulations are recommended by the concerned Board of Studies for Academic Council approval.\n\n" +
+      "- **4.1:** They cover programme-specific admission criteria, programme duration, mandatory minimum credits for the degree, assessment and evaluation guidelines, applicable regulatory-body requirements, qualification types/titles, and the process for recommending and approving qualifications.\n" +
       "- **4.2:** They include the programme structure and curriculum, listing the courses offered and their associated credits." +
       clause4SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
     : undefined;
   const clause12Answer = requestedClauseRoot === "12" && clause12SourceIndices.length
-    ? "**Clause 12 — Progression**\\n\\n" +
-      "- **12.1 — Yearly promotion:** A minimum CGPA of **4.00** is required for progression to Year 2 (registration for Semester 3). A minimum CGPA of **5.00** applies to progression to Year 3 and higher years.\\n" +
-      "- **12.2 — When CGPA is assessed:** The minimum is assessed after the concerned Semester results, Make-Up Examinations and Summer Term, as applicable.\\n" +
-      "- **12.3 — If the threshold is not met:** The student chooses one of the options in Clauses 12.4 or 12.5.\\n" +
-      "- **12.4 — Repeat the Academic Year:** The student may repeat the concerned Academic Year, including both Odd and Even Semesters.\\n" +
+    ? "**Clause 12 — Progression**\n\n" +
+      "- **12.1 — Yearly promotion:** A minimum CGPA of **4.00** is required for progression to Year 2 (registration for Semester 3). A minimum CGPA of **5.00** applies to progression to Year 3 and higher years.\n" +
+      "- **12.2 — When CGPA is assessed:** The minimum is assessed after the concerned Semester results, Make-Up Examinations and Summer Term, as applicable.\n" +
+      "- **12.3 — If the threshold is not met:** The student chooses one of the options in Clauses 12.4 or 12.5.\n" +
+      "- **12.4 — Repeat the Academic Year:** The student may repeat the concerned Academic Year, including both Odd and Even Semesters.\n" +
       "- **12.5 — Selective re-registration:** The student may instead re-register for selected courses in the next Academic Year to earn required credits and improve CGPA. The related clauses also specify how previous grades/credits and fees are treated." +
       clause12SourceIndices.map((index) => " [" + (index + 1) + "]").join("")
     : undefined;
@@ -2630,7 +2686,7 @@ export async function POST(request: Request) {
         const requestedRangeMismatch = Boolean(explicitProgressionRange) &&
           (explicitProgressionRange!.from !== currentSemester || explicitProgressionRange!.to !== targetSemester);
         const rangeNote = requestedRangeMismatch
-          ? "Your question specifies **Semester "+explicitProgressionRange!.from+" to Semester "+explicitProgressionRange!.to+"**, but your authenticated profile records you in **Semester "+currentSemester+"**. I will not treat the requested range as your personal progression path. Based on your profile, the next sequential semester is **Semester "+targetSemester+"**.\\n\\n"
+          ? "Your question specifies **Semester "+explicitProgressionRange!.from+" to Semester "+explicitProgressionRange!.to+"**, but your authenticated profile records you in **Semester "+currentSemester+"**. I will not treat the requested range as your personal progression path. Based on your profile, the next sequential semester is **Semester "+targetSemester+"**.\n\n"
           : "";
         let answer="**Progression check for "+studentLabel+"**\n\n"+rangeNote+"Your profile shows **Semester "+currentSemester+"**. The next semester in sequence is **Semester "+targetSemester+"** (Academic Year "+targetYear+").\n\n";
         if(!crossingAcademicYear) {
@@ -2777,6 +2833,15 @@ const context=safeData(JSON.stringify({
     : undefined;
   const deterministicStudentMinor=isStudentMinorQuery&&!minorProgrammeClarification&&!minorSemesterClarification;
   const deterministicStructuredCourse=structuredCourseSearch!==undefined;
+  const explicitLtpCourseAnswer = structuredCourseSearch?.ltpOnly
+    ? structuredCourseAnswer(structuredCourseSearch)
+    : undefined;
+  const broadLtpHelpAnswer =
+    /\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(effectiveQuestion) &&
+    /\bany\b/i.test(effectiveQuestion) &&
+    !structuredCourseSearch
+      ? "I can look up the L-T-P structure from the B.Tech semester-spread records. Please give me a course code or title (for example, COMP302), and I’ll show the Lecture, Tutorial and Practical values for the available admission batches."
+      : undefined;
   const asksFailedCourses=/\b(?:did i fail any(?:thing|course|courses)|did i fail naything|have i failed any(?:thing|course|courses)|have i failed naything|any failed courses|any backlogs?|my backlogs?|failed courses? in my record)\b/i.test(effectiveQuestion);
   const failedProfileRecords=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed"||authenticatedStudent.failed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
   const failedProfileCodes=new Set(failedProfileRecords.map((record)=>String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
@@ -2892,6 +2957,22 @@ const context=safeData(JSON.stringify({
     answer=profilePrivacyAnswer;
     modelUsed="Deterministic authenticated-profile identity and attachment-privacy guardrail";
     pipeline.push("Resolved identity from the signed session and blocked unverified uploaded academic records before model generation");
+  }else if(explicitLtpCourseAnswer){
+    answer=explicitLtpCourseAnswer;
+    modelUsed="Deterministic B.Tech batch-specific L-T-P lookup (no answer-generation model)";
+    pipeline.push("Retrieved the requested course's Lecture, Tutorial and Practical values directly from structured admission-batch workbook rows");
+  }else if(broadLtpHelpAnswer){
+    answer=broadLtpHelpAnswer;
+    modelUsed="Deterministic L-T-P query guidance";
+    pipeline.push("Recognised a general L-T-P request and prompted for a course identifier supported by the batch-specific workbook");
+  }else if(clause15Answer){
+    answer=clause15Answer;
+    modelUsed="Deterministic Student Handbook Clause 15 lookup";
+    pipeline.push("Retrieved the Award of Degree conditions, distinction threshold and provisional certificate provisions from Handbook pages 46–47");
+  }else if(clause11Answer){
+    answer=clause11Answer;
+    modelUsed="Deterministic Student Handbook Clause 11.3 lookup";
+    pipeline.push("Retrieved the exact Summer Term registration provision from Handbook page 40");
   }else if(ownCourseStatusAnswer){
     answer=ownCourseStatusAnswer;
     modelUsed="Deterministic authenticated synthetic-profile course-status lookup";
