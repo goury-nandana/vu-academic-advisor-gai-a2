@@ -724,7 +724,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
   if (/\bweather\b|\btemperature\b|\bforecast\b/.test(normalized)) {
     return "I can help with Vidyashilp University academic information, but I do not have live weather data for the campus. Please check a weather service for current conditions.";
   }
-  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|digii|bms|b\.?tech|b\.a\.|b\.des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic)\b/i.test(question) || /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) || extractCourseCodeCandidates(question).length > 0 ||
+  const hasVuAcademicContext = /\b(?:vu|vidyashilp|university|campus|admission|application|programme|programmes|program|programs|speciali[sz]ations?|tracks?|courses?|subjects?|curriculum|syllabus|semester|credits?|credit|attendance|attend|absence|absent|condonation|shortage|cgpa|sgpa|gpa|grade point average|convocation|graduation|exam|examination|assessment|marks|grade|facult(?:y|ies)|student|hostel|fee|scholarship|policy|handbook|sop|prerequisites?|prerequisite|eligib(?:le|ility)|graduat(?:e|ed|ion)|backlogs?|fail(?:ed|ure)?|acdemic|digii|bms|b\.?tech|b\.a\.|b\.des|ba llb|minors?|majors?|electives?|economics|psychology|department|school|wellness|counselling|counseling|internship|placement|contact|research|library|timetable|academic)\b/i.test(question) || /\b(?:can|may|could)\s+i\s+(?:take|enrol|enroll|register)\b/i.test(question) || extractCourseCodeCandidates(question).length > 0 ||
     /\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(question) ||
     (/\b(?:lecture|tutorial|practical|structure|details?)\b/i.test(question) && mentionsKnownCourseTitle(question));
   // Also allow personal academic profile questions and app-feature requests that
@@ -2238,7 +2238,7 @@ export async function POST(request: Request) {
     : undefined;
   const deterministicStudentMinor=isStudentMinorQuery&&!minorProgrammeClarification&&!minorSemesterClarification;
   const deterministicStructuredCourse=structuredCourseSearch!==undefined;
-  const asksFailedCourses=/\b(?:did i fail anything|have i failed anything|did i fail any(?:thing|course|courses)|have i failed any(?:thing|course|courses)|any failed courses|any backlogs?|my backlogs?|failed courses? in my record)\b/i.test(effectiveQuestion);
+  const asksFailedCourses=/\b(?:did i fail any(?:thing|course|courses)|did i fail naything|have i failed any(?:thing|course|courses)|have i failed naything|any failed courses|any backlogs?|my backlogs?|failed courses? in my record)\b/i.test(effectiveQuestion);
   const failedProfileRecords=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed"||authenticatedStudent.failed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
   const failedProfileCodes=new Set(failedProfileRecords.map((record)=>String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
   const failedCourseAnswer=asksFailedCourses
@@ -2275,7 +2275,7 @@ export async function POST(request: Request) {
       })()
     : undefined;
   const asksAcademicWritingEligibility=/\b(?:academic|acdemic) writing\b/i.test(effectiveQuestion)&&
-    /\b(?:can i take|can i enrol|can i enroll|can i register|am i eligible|eligibility|allowed to take|take this course)\b/i.test(effectiveQuestion);
+    /\b(?:can i take|ca i take|can i enrol|can i enroll|can i register|am i eligible|eligibility|allowed to take|take this course)\b/i.test(effectiveQuestion);
   const academicWritingAnswer=asksAcademicWritingEligibility
     ? (() => {
         const writingRows=ACADEMIC_KNOWLEDGE.courseRecords.filter((record)=>
