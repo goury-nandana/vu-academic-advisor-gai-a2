@@ -2238,11 +2238,83 @@ export async function POST(request: Request) {
     : undefined;
   const deterministicStudentMinor=isStudentMinorQuery&&!minorProgrammeClarification&&!minorSemesterClarification;
   const deterministicStructuredCourse=structuredCourseSearch!==undefined;
+  const asksFailedCourses=/\b(?:did i fail anything|have i failed anything|did i fail any(?:thing|course|courses)|have i failed any(?:thing|course|courses)|any failed courses|any backlogs?|my backlogs?|failed courses? in my record)\b/i.test(effectiveQuestion);
+  const failedProfileRecords=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed"||authenticatedStudent.failed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
+  const failedProfileCodes=new Set(failedProfileRecords.map((record)=>String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
+  const failedCourseAnswer=asksFailedCourses
+    ? (() => {
+        const unlistedFailedCodes=authenticatedStudent.failed_course_codes.filter((code)=>!failedProfileCodes.has(String(code).replace(/[\s-]/g,"").toUpperCase()));
+        const listed=failedProfileRecords.map((record)=>"- **"+record.course_code+" — "+record.course_title+"** (Semester "+record.semester+")");
+        listed.push(...unlistedFailedCodes.map((code)=>"- **"+code+"** (course details not recorded in this profile)"));
+        return listed.length
+          ? "**Failed courses recorded for "+authenticatedStudent.name+"**\n\n"+listed.join("\n")+"\n\nThis is from your authenticated fictional demo profile; confirm official results on the student portal."
+          : "**No failed courses are recorded** in the authenticated synthetic profile for "+authenticatedStudent.name+". This is fictional demo data, not an official result statement.";
+      })()
+    : undefined;
+  const asksRemainingUniversityCore=/\b(?:university[-\s]?core|univ(?:ersity)?[-\s]?core|core courses?)\b/i.test(effectiveQuestion)&&
+    /\b(?:remaining|remain|left|next year|next academic year|have to complete|do i have to|still need|complete|what all|any more)\b/i.test(effectiveQuestion);
+  const universityCoreAnswer=asksRemainingUniversityCore
+    ? (() => {
+        const nextYearOnly=/\b(?:next year|next academic year)\b/i.test(effectiveQuestion);
+        const currentSemester=Number(authenticatedStudent.current_semester||0);
+        const futureCoreRows=ACADEMIC_KNOWLEDGE.courseRecords.filter((record)=>
+          String(record.batch||"")===String(authenticatedStudent.admission_batch||"")&&
+          String(record.programme||"").toLowerCase()==="b.tech"&&
+          record.document_type==="semester_spread"&&record.is_course_record!==false&&
+          /^UCOR\d+$/i.test(String(record.course_code||""))&&
+          Number(record.semester)>currentSemester&&
+          (!nextYearOnly||Number(record.semester)<=currentSemester+2)&&
+          !authenticatedStudent.completed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase())&&
+          !authenticatedStudent.academic_records.some((studentRecord)=>String(studentRecord.course_code||"").replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()&&String(studentRecord.status||"").toLowerCase()==="passed")
+        ).filter((record,index,all)=>all.findIndex((candidate)=>String(candidate.course_code||"").toUpperCase()===String(record.course_code||"").toUpperCase()&&Number(candidate.semester)===Number(record.semester))===index)
+          .sort((a,b)=>Number(a.semester)-Number(b.semester)||String(a.course_code).localeCompare(String(b.course_code)));
+        const list=futureCoreRows.map((record)=>"- **Semester "+record.semester+": "+record.course_code+" — "+record.course_title+"** ("+record.credits+" credits)");
+        return list.length
+          ? "**Remaining University-Core courses for "+authenticatedStudent.name+" (B.Tech, batch "+authenticatedStudent.admission_batch+")**\n\n"+list.join("\n")+"\n\nThese are future UCOR-coded courses in your batch-specific semester-spread plan, compared against passed courses in your synthetic profile. Verify your official requirements with the Faculty Advisor."
+          : "I could not identify any future UCOR-coded courses remaining in the supplied semester-spread records for your admission batch. Please confirm the official University-Core requirements with your Faculty Advisor.";
+      })()
+    : undefined;
+  const asksAcademicWritingEligibility=/\bacademic writing\b/i.test(effectiveQuestion)&&
+    /\b(?:can i take|can i enrol|can i enroll|can i register|am i eligible|eligibility|allowed to take|take this course)\b/i.test(effectiveQuestion);
+  const academicWritingAnswer=asksAcademicWritingEligibility
+    ? (() => {
+        const writingRows=ACADEMIC_KNOWLEDGE.courseRecords.filter((record)=>
+          String(record.batch||"")===String(authenticatedStudent.admission_batch||"")&&
+          String(record.programme||"").toLowerCase()==="b.tech"&&
+          record.document_type==="semester_spread"&&record.is_course_record!==false&&
+          /academic writing/i.test(String(record.course_title||""))
+        ).filter((record,index,all)=>all.findIndex((candidate)=>String(candidate.course_code||"").toUpperCase()===String(record.course_code||"").toUpperCase())===index);
+        if(!writingRows.length) return "I could not find a course titled Academic Writing in the supplied B.Tech semester-spread plan for your "+authenticatedStudent.admission_batch+" admission batch. I will not apply another batch’s course or prerequisites. Please check the batch-specific course plan with your Faculty Advisor.";
+        const rows=writingRows.map((record)=>{
+          const statusRecord=authenticatedStudent.academic_records.find((item)=>String(item.course_code||"").replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase());
+          const status=String(statusRecord?.status||"").toLowerCase();
+          const prerequisiteCodes=String(record.prerequisite||"").trim()&&!/^(?:nil|none|na|n\/a|-)$/i.test(String(record.prerequisite||"").trim())?String(record.prerequisite).split(/[,;]+/).map((code)=>code.replace(/[\s-]/g,"").toUpperCase()).filter(Boolean):[];
+          const missing=prerequisiteCodes.filter((code)=>!authenticatedStudent.completed_course_codes.some((passed)=>String(passed).replace(/[\s-]/g,"").toUpperCase()===code));
+          if(status==="passed"||authenticatedStudent.completed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase())) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: your profile records this course as **Passed**; you have already completed it.";
+          if(status.includes("progress")) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: your profile records this course as **In Progress**.";
+          if(missing.length) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: the prerequisite(s) "+missing.join(", ")+" are not recorded as passed in your profile.";
+          return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: the batch plan lists prerequisite(s) "+(prerequisiteCodes.length?prerequisiteCodes.join(", "):"None")+". Your profile does not show a passed or in-progress attempt. Direct prerequisites appear met; registration is still subject to university approval and course availability.";
+        });
+        return "**Academic Writing — batch-specific course check for "+authenticatedStudent.name+"**\n\n"+rows.join("\n\n")+"\n\nThis is based on the supplied synthetic profile and batch course plan, not official registration approval.";
+      })()
+    : undefined;
   let modelUsed=MODEL;
   if(profilePrivacyAnswer){
     answer=profilePrivacyAnswer;
     modelUsed="Deterministic authenticated-profile identity and attachment-privacy guardrail";
     pipeline.push("Resolved self-identity from the authenticated session and blocked requests for another student's individual results before model generation");
+  }else if(failedCourseAnswer){
+    answer=failedCourseAnswer;
+    modelUsed="Deterministic authenticated synthetic-profile failed-course lookup";
+    pipeline.push("Listed failed course records only from the authenticated synthetic profile; did not call the answer-generation model");
+  }else if(academicWritingAnswer){
+    answer=academicWritingAnswer;
+    modelUsed="Deterministic batch-specific Academic Writing course and prerequisite check";
+    pipeline.push("Matched Academic Writing course rows to the authenticated admission batch and compared prerequisite/status data against the student's profile");
+  }else if(universityCoreAnswer){
+    answer=universityCoreAnswer;
+    modelUsed="Deterministic batch-specific remaining University-Core course lookup";
+    pipeline.push("Retrieved future UCOR-coded course rows for the authenticated admission batch and excluded courses recorded as passed");
   }else if(socialAnswer){
     answer=socialAnswer;
     modelUsed="Deterministic conversational response";
