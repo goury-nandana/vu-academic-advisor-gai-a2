@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedStudent } from "../../../../lib/demo-auth";
+import { getAuthenticatedStudent } from "../../../lib/demo-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
