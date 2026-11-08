@@ -464,7 +464,7 @@ export default function Home() {
         setTranscribing(true);
         setNotice("Transcribing your recording…");
         try {
-          const transcript = await transcribeVoice(recordingFile);
+          const transcript = await transcribeVoice(recordingFile, authStudent?.id);
           if (epoch !== sessionEpochRef.current) return; // session changed while transcribing
           if (!transcript) {
             setNotice("No speech could be recognised. Try speaking more clearly or recording again.");
