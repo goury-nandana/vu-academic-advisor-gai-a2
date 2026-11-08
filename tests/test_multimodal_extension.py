@@ -32,7 +32,7 @@ class MultimodalExtensionRegressionTests(unittest.TestCase):
         page = (ROOT / "frontend/app/page.tsx").read_text(encoding="utf-8")
         route = (ROOT / "frontend/app/api/chat/route.ts").read_text(encoding="utf-8")
         transcribe = (ROOT / "frontend/app/api/transcribe/route.ts").read_text(encoding="utf-8")
-        self.assertIn("transcribeVoice(recordingFile)", page)
+        self.assertRegex(page, r"transcribeVoice\\(recordingFile,\\s*authStudent\\?\\.id\\)")
         self.assertIn("window.speechSynthesis.speak(utterance)", page)
         self.assertIn("readImages(key,imageFiles,combinedQuestion)", route)
         self.assertIn("OfficeParser.parseOffice", route)
