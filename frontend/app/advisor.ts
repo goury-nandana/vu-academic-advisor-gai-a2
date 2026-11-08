@@ -23,8 +23,6 @@ export type AdvisorReply = {
   attachmentContext?: string[];
 };
 
-const EXTERNAL_API = process.env.NEXT_PUBLIC_ADVISOR_API_URL?.replace(/\/$/, "") ?? "";
-
 export class AdvisorError extends Error {
   code?: string;
   constructor(message: string, code?: string) { super(message); this.name = "AdvisorError"; this.code = code; }
@@ -47,7 +45,7 @@ export async function askAdvisor(input: {
   input.files.forEach((file) => form.append("files", file, file.name));
   form.append("attachmentContext", JSON.stringify(input.attachmentContext ?? []));
 
-  const endpoint = EXTERNAL_API ? EXTERNAL_API + "/chat" : "/api/chat";
+  const endpoint = "/api/chat";
   const response = await fetch(endpoint, {
     method: "POST",
     body: form,
