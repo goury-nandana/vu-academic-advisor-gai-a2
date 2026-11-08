@@ -42,7 +42,7 @@ The web chat supports:
 - Structured charts, steps and visual summary cards derived from retrieved answer evidence.
 - An authenticated, source-grounded course-prerequisite SVG infographic that shows Passed / Failed / Unknown direct prerequisite states for the signed-in synthetic account.
 
-The web API limit is four files and 4 MB combined. Extraction is in memory. Scanned or encrypted files may not yield readable text; the app should disclose this rather than guess.
+The web API limit is four files and 4 MB combined. Extraction is in memory. Scanned or encrypted files may not yield readable text; the app should disclose this rather than guess. The chat and transcription routes also require a signed synthetic-account session; transcription checks the expected active profile ID.
 
 ## Synthetic B.Tech demo accounts and signup (Assignment 2)
 
