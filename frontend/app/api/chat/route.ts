@@ -679,11 +679,35 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
     return "I don’t have personal relationships. I’m here to help with Vidyashilp University information.";
   }
     if (/^(?:tgb|yhn|ujm|ikol|asdf|qwer|zxcv)(?:[a-z]+)?(?:\s+(?:tgb|yhn|ujm|ikol|asdf|qwer|zxcv)[a-z]*)*$/i.test(normalized)) {
-    return "I couldn’t make sense of that message. Could you retype or rephrase it?";
+    return “I couldn’t make sense of that message. Could you retype or rephrase it?”;
+  }
+  // Class rank / highest CGPA queries — broad pattern to catch variations like “who got highest cgpa”
+  if (/\b(?:who(?:’s| is| has| got| scored)|highest|topper|top(?:\s+student)?|best\s+cgpa|rank(?:ed)?|first\s+rank)\b/i.test(normalized) && /\b(?:cgpa|marks?|grade|score|class|batch)\b/i.test(normalized)) {
+    return “I can only access your own academic profile — I can’t see or compare other students’ CGPAs or class rankings. If you’d like, I can show you your own CGPA and credits.”;
+  }
+  // Laughter / casual reactions
+  if (/^(?:lol|lmao|lmfao|haha|hehe|hahaha|😂|xd|lolz)$/.test(normalized)) {
+    return “Ha! Anything else I can help you with for your academics?”;
+  }
+  // Positive acknowledgements
+  if (/^(?:oh nice|oh cool|nice|cool|okay cool|ok cool|great|awesome|wow|woah|whoa|neat)$/.test(normalized)) {
+    return “Glad to help! Ask me anything about your courses or academic progress.”;
+  }
+  // Dismissive / casual brush-off
+  if (/^(?:get out|go away|shut up|leave me alone|stop it|be quiet)$/.test(normalized)) {
+    return “I’ll be here if you need help with your academics.”;
+  }
+  // Single punctuation confusion
+  if (/^\?+$/.test(normalized)) {
+    return “Could you rephrase that? I’m here to help with your B.Tech courses, prerequisites, credits and academic progress.”;
+  }
+  // Common acknowledgement words — give a gentle prompt rather than asking if they mean a course
+  if (/^(?:yep|yup|yeah|ya|nah|nope|sure|alright|mhm|hm|ah|uh|k|kk|mm)$/.test(normalized)) {
+    return “What would you like help with?”;
   }
   // A bare word is ambiguous: ask what the student means instead of guessing their intent.
-  if (/^[a-z0-9][a-z0-9'-]*$/i.test(normalized)) {
-    return "Could you clarify what you mean by **“" + normalized + "”**? Are you asking about a B.Tech course, your student profile, or something else?";
+  if (/^[a-z0-9][a-z0-9’-]*$/i.test(normalized)) {
+    return “Could you clarify what you mean by **”” + normalized + “”**? Are you asking about a B.Tech course, your student profile, or something else?”;
   }
   return undefined;
 }
@@ -2240,12 +2264,34 @@ export async function POST(request: Request) {
   const contextAcademicSources = sources.filter((source)=>source.type==="academic").slice(0,2);
   const contextWebsiteSources = sources.filter((source)=>source.type==="website").slice(0,2);
   const allAttachmentContext=[...previousAttachmentContext,...attachments].slice(-4);
+<<<<<<< Updated upstream
   const profilePrivacyAnswer=getAuthenticatedProfilePrivacyAnswer(effectiveQuestion,authenticatedStudent,allAttachmentContext);
+=======
+
+  // Hard privacy guard: if an uploaded file looks like a synthetic marksheet or academic record
+  // belonging to a DIFFERENT student, strip personal academic data before it reaches the LLM.
+  // This prevents "upload VU006's marksheet and ask her CGPA" attacks.
+  function sanitizeAttachmentForPrivacy(text: string, authName: string): string {
+    const isSyntheticMarksheet = /synthetic\s+demonstration\s+record|not\s+an\s+official\s+marksheet|synthetic\s+marksheet|SYNTHETIC\s+DEMONSTRATION/i.test(text);
+    if (!isSyntheticMarksheet) return text; // not a marksheet, pass through
+    // Check if this marksheet belongs to the authenticated student
+    const authFirstName = authName.split(" ")[0].toLowerCase();
+    const mentionsAuthStudent = text.toLowerCase().includes(authFirstName);
+    if (mentionsAuthStudent) return text; // it's the student's own marksheet, fine
+    // It's another student's marksheet — strip grades/CGPA, keep structure description only
+    return "[PRIVACY REDACTED: This uploaded file appears to be a synthetic academic marksheet belonging to a different student. Individual grades, CGPA and course results have been removed. The document type is: Synthetic Demonstration Marksheet PDF. The authenticated student's own academic data remains in the authenticatedSyntheticStudent field above.]";
+  }
+
+  const sanitizedAttachmentContext = allAttachmentContext.map((att) =>
+    sanitizeAttachmentForPrivacy(att.slice(0, 6000), authenticatedStudent.name)
+  );
+
+>>>>>>> Stashed changes
   const context=safeData(JSON.stringify({
     officialVUAcademicDocuments:contextAcademicSources.map((source)=>({citation:source.citation,title:source.title,url:source.url,excerpt:source.text.slice(0,1000)})),
     officialVUWebPages:contextWebsiteSources.map((source)=>({citation:source.citation,title:source.title,url:source.url,excerpt:source.text.slice(0,1000)})),
     authenticatedSyntheticStudent: { name: authenticatedStudent.name, syntheticStudentId: authenticatedStudent.synthetic_student_id, admissionBatch: authenticatedStudent.admission_batch, academicStatus: authenticatedStudent.academic_status, currentSemester: authenticatedStudent.current_semester, syntheticCGPA: authenticatedStudent.synthetic_cgpa, courseRecords: authenticatedStudent.academic_records.map((record)=>({courseCode:record.course_code,courseTitle:record.course_title,semester:record.semester,credits:record.credits,syntheticGrade:record.grade,resultStatus:record.status,repeatAttempts:record.attempts||[]})) },
-    studentAttachments:allAttachmentContext.map((attachment)=>attachment.slice(0,6000)),
+    studentAttachments:sanitizedAttachmentContext,
     unreadableAttachments:unreadableAttachmentNames,
     recentConversation:history.slice(-3).map((item)=>({role:item.role,text:item.text.slice(-350)})),
   }));
@@ -2612,6 +2658,6 @@ export async function POST(request: Request) {
   const citedSources=sources.filter((source)=>citedSourceNumbers.has(Number(source.citation)));
   return NextResponse.json({
     answer,sources:citedSources.map(({title,url,citation,type})=>({title,url,citation,type})),pipeline,model:modelUsed,
-    visualization,followUps,attachmentContext:allAttachmentContext,
+    visualization,followUps,attachmentContext:sanitizedAttachmentContext,
   },{headers:{"Cache-Control":"no-store, max-age=0","X-Content-Type-Options":"nosniff","Referrer-Policy":"strict-origin-when-cross-origin"}});
 }
