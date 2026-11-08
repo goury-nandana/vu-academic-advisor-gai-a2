@@ -498,6 +498,19 @@ function isMinorQuestion(question: string): boolean {
   return /\bminor(?:s)?\b/i.test(question);
 }
 
+// Normalize common student-typing errors before intent routing. Uploaded evidence
+// and the original user message are not modified.
+function normalizeAcademicTypos(question: string): string {
+  return question
+    .replace(/\battendace\b/gi, "attendance")
+    .replace(/\bfaled\b/gi, "failed")
+    .replace(/\bnaything\b/gi, "anything")
+    .replace(/\bocurses\b/gi, "courses")
+    .replace(/\bstructre\b/gi, "structure")
+    .replace(/\beleigible\b/gi, "eligible")
+    .replace(/\breqiremnet\b/gi, "requirement");
+}
+
 function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = [], student?: { name: string; username: string; synthetic_student_id: string; programme?: string; admission_batch?: string; current_semester?: number | null; academic_status?: string; synthetic_cgpa?: number | null }): string | undefined {  const normalized = question.trim().toLowerCase()    .replace(/(.)\1{2,}/g, "$1")
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ");
@@ -1416,7 +1429,7 @@ function retrieveAcademic(
   }
   return selected;
 }
-function attendancePolicyAnswer(documents: AcademicDocument[]): string | undefined {
+function attendancePolicyAnswer(documents: AcademicDocument[], question = ""): string | undefined {
   const find = (sourcePattern: RegExp, contentPattern: RegExp) =>
     documents.find((document) => sourcePattern.test(document.source || "") && contentPattern.test(document.text || ""));
   const handbookMinimum = find(/Student Handbook/i, /seventy five percent|75\s*%/i);
@@ -1443,6 +1456,21 @@ function attendancePolicyAnswer(documents: AcademicDocument[]): string | undefin
     answer += "- **Check:** Course-wise attendance is on Digii. The SOP says reports are shared twice per semester and Digii records are final for End-Term purposes." + cite(sopDigii) + "\n";
   }
   answer += "\nFor a shortage or discrepancy, contact the course faculty and Faculty Advisor promptly. A medical certificate alone does not guarantee relaxation.";
+  const percentageMatch = question.match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
+  if (percentageMatch) {
+    const percentage = Number(percentageMatch[1]);
+    if (Number.isFinite(percentage) && percentage >= 0 && percentage <= 100) {
+      let decision: string;
+      if (percentage < 65) {
+        decision = "At **" + percentage + "%**, you are below the normal 75% requirement and also below the **65% absolute minimum** allowed even under the specified special-relaxation provisions. Based on Clauses 7.3–7.6, you would **not be eligible to sit the End-Term Examination** for a course with this final attendance percentage. The shortage can result in an FA grade." + cite(handbookRelaxation) + cite(handbookShortage);
+      } else if (percentage < 75) {
+        decision = "At **" + percentage + "%**, you are below the normal 75% requirement. A relaxation may be considered only for the specified serious medical or qualifying representation circumstances, with the required documents and approvals; **65% is the lowest permitted floor, not an automatic waiver**. Do not assume eligibility unless the relaxation is formally approved." + cite(handbookRelaxation);
+      } else {
+        decision = "At **" + percentage + "%**, you meet the stated 75% numerical threshold, provided this is the final course-wise figure recorded on Digii and no programme-specific regulatory threshold applies." + cite(handbookMinimum);
+      }
+      answer = "**Attendance check — " + percentage + "%**\n\n" + decision + "\n\n" + answer;
+    }
+  }
   return answer;
 }
 function academicSourceUrl(source: string, page?: number | string) {
@@ -1894,7 +1922,7 @@ export async function POST(request: Request) {
   const pendingCourseQuestion = getPendingBtechCourseQuestion(history, combinedQuestion);
   const contextualCourseLtpQuestion = getContextualBtechCourseLtpQuestion(history, combinedQuestion);
   const contextualFacultyQuestion = getContextualFacultyFollowupQuestion(history, combinedQuestion);
-  const effectiveQuestionBase = pendingMinorQuestion || pendingBtechMinorCorrection || pendingCourseQuestion || contextualCourseLtpQuestion || contextualFacultyQuestion || combinedQuestion;
+  const effectiveQuestionBase = normalizeAcademicTypos(pendingMinorQuestion || pendingBtechMinorCorrection || pendingCourseQuestion || contextualCourseLtpQuestion || contextualFacultyQuestion || combinedQuestion);
   // Minor-option lookups use the signed-in student's own admission batch instead of asking for it.
   const useProfileBatchForMinor = isMinorQuestion(effectiveQuestionBase) &&
     (isBtechMinorQuestion(effectiveQuestionBase) || isBtechProgramme(authenticatedStudent.programme)) &&
@@ -1967,9 +1995,10 @@ export async function POST(request: Request) {
       })]
     : [];
   const explicitRequestedSemester=extractCourseSemester(effectiveQuestion);
-  const asksCurrentSemester=/\b(?:my\s+)?current\s*(?:semester|sem)|\bthis\s+sem(?:ester)?\b/i.test(effectiveQuestion);
+  const asksCurrentSemesterCourses=/\b(?:(?:my|our)\s+)?(?:current|this)\s+(?:courses?|subjects?)\b/i.test(effectiveQuestion);
+  const asksCurrentSemester=/\b(?:my\s+)?current\s*(?:semester|sem)|\bthis\s+sem(?:ester)?\b/i.test(effectiveQuestion)||asksCurrentSemesterCourses;
   const requestedSemester=explicitRequestedSemester??(asksCurrentSemester&&authenticatedStudent.current_semester!==null?Number(authenticatedStudent.current_semester):undefined);
-  const asksOwnSemesterCourses=/\b(?:did\s+i\s+have|did\s+i\s+take|i\s+had|i\s+took|my|of\s+my)\b/i.test(effectiveQuestion) && /\b(?:courses?|subjects?)\b/i.test(effectiveQuestion) && /\b(?:semester|sem)\b/i.test(effectiveQuestion);
+  const asksOwnSemesterCourses=(/\b(?:did\s+i\s+have|did\s+i\s+take|i\s+had|i\s+took|my|of\s+my)\b/i.test(effectiveQuestion) && /\b(?:courses?|subjects?)\b/i.test(effectiveQuestion) && /\b(?:semester|sem)\b/i.test(effectiveQuestion)) || asksCurrentSemesterCourses;
   const asksOwnSemesterLtp=asksOwnSemesterCourses&&/\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(effectiveQuestion);
   const ownSemesterRecords=asksOwnSemesterCourses && requestedSemester!==undefined
     ? authenticatedStudent.academic_records.filter((record)=>Number(record.semester)===requestedSemester)
@@ -1985,11 +2014,8 @@ export async function POST(request: Request) {
                 Number(course.semester)===requestedSemester&&course.document_type==="semester_spread"&&course.is_course_record!==false
               );
               const ltp=[planRow?.L,planRow?.T,planRow?.P].map((value)=>value===null||value===undefined||value===""?"Not specified":String(value)).join("-");
-              // Do not reference academicMatches here: its declaration is later in this request handler.
-              // L-T-P is matched directly to the structured batch/semester workbook row above.
-              const sourceIndex=-1;
-              const cite=sourceIndex>=0?" ["+(sourceIndex+1)+"]":"";
-              return "| "+record.course_code+" | "+record.course_title.replace(/\|/g,"\\|")+" | "+record.credits+" | "+(record.status||"Not recorded")+" | "+ltp+" |"+cite;
+              // The profile supplies course/result status; the batch workbook supplies L-T-P.
+              return "| "+record.course_code+" | "+record.course_title.replace(/\|/g,"\\|")+" | "+record.credits+" | "+(record.status||"Not recorded")+" | "+ltp+" |";
             });
             return "**Semester "+requestedSemester+" L-T-P for "+authenticatedStudent.name+" ("+authenticatedStudent.programme+", admission batch "+authenticatedStudent.admission_batch+")**\n\n| Course Code | Course Title | Credits | Result | L-T-P |\n| --- | --- | ---: | --- | --- |\n"+ltpRows.join("\n")+"\n\nCourse/result details are from your authenticated synthetic profile; L-T-P is matched to the supplied batch-specific semester-spread workbook. These are fictional demonstration records, not an official VU transcript. If an L-T-P value is shown as Not specified, the matching workbook row did not supply it.";
           })()
@@ -2094,6 +2120,19 @@ export async function POST(request: Request) {
   const pages: WebsiteSearchHit[] = (isBtechMinorQuery||isStudentMinorQuery||structuredCourseSearch||socialAnswer||suppressWebsiteForAttendance||onlyImagesUploaded)
     ? []
     : localWebsiteMatches.length ? localWebsiteMatches : await retrieve(combinedQuestion);
+  const asksGenerativeAiElective=/\b(?:generative\s*ai|gen\s*ai)\b/i.test(effectiveQuestion) &&
+    /\b(?:take|enrol|enroll|register|eligible|offered|course|elective)\b/i.test(effectiveQuestion);
+  if(asksGenerativeAiElective && !pages.some((page)=>page.pageId==="programme_btech_aiml")) {
+    const chunk=WEBSITE_KNOWLEDGE.chunks.find((item)=>item.page_id==="programme_btech_aiml" && /Generative AI models/i.test(item.text||""));
+    if(chunk) pages.unshift({
+      title:String(chunk.page_title||"Vidyashilp University")+" — "+String(chunk.heading||"Electives"),
+      url:String(chunk.page_url||"https://vidyashilp.edu.in/"),
+      text:String(chunk.text||""),
+      pageId:chunk.page_id,
+      heading:chunk.heading,
+      score:100,
+    });
+  }
   pipeline.push("Searched the embedded VU Student Handbook, Student SOP, course plans and structured B.Tech semester-spread records");
   pipeline.push("Matched "+academicMatches.length+" relevant academic document passage(s) from "+new Set(academicMatches.map((item)=>item.source)).size+" repository source(s)");
   pipeline.push("Fetched "+pages.length+" reachable official VU webpage(s) from the allowlist");
@@ -2102,6 +2141,27 @@ export async function POST(request: Request) {
     title:page.title,url:page.url,text:page.text,citation:academicSources.length+index+1,type:"website",pageId:"pageId" in page ? page.pageId : undefined,
   }));
   const sources=[...academicSources,...webSources];
+  const generativeAiPageIndex=pages.findIndex((page)=>page.pageId==="programme_btech_aiml" && /Generative AI models/i.test(page.text||""));
+  const generativeAiBatchRows=ACADEMIC_KNOWLEDGE.courseRecords.filter((record)=>
+    String(record.batch||"")===String(authenticatedStudent.admission_batch||"") &&
+    String(record.programme||"").toLowerCase()==="b.tech" &&
+    record.document_type==="semester_spread" &&
+    record.is_course_record!==false &&
+    /generative\s*ai/i.test(String(record.course_title||"")+" "+String(record.course_code||""))
+  );
+  const generativeAiElectiveAnswer=asksGenerativeAiElective
+    ? (() => {
+        const citation=generativeAiPageIndex>=0?" ["+(academicSources.length+generativeAiPageIndex+1)+"]":"";
+        if(generativeAiBatchRows.length) {
+          const details=generativeAiBatchRows.map((record)=>"- **"+record.course_code+" — "+record.course_title+"** (Semester "+record.semester+", "+record.credits+" credits; listed prerequisite: "+(record.prerequisite||"none recorded")+")").join("\n");
+          return "**Generative AI — batch-specific course-plan record**\n\n"+details+citation+"\n\nThis confirms that the supplied workbook contains a matching row for your admission batch. It does not by itself confirm registration eligibility or current offering; check the stated prerequisites and confirm availability with your Faculty Advisor.";
+        }
+        const publicNote=generativeAiPageIndex>=0
+          ? "The public B.Tech CSE AI/ML programme page lists **Generative AI models** among its electives."+citation
+          : "I could not retrieve the relevant public programme-page excerpt in this request.";
+        return "**Generative AI — can you take it?**\n\n"+publicNote+"\n\nHowever, I could not find a Generative AI course row in the supplied B.Tech semester-spread workbook for your **"+authenticatedStudent.admission_batch+" admission batch**. Your signed-in profile identifies you as **"+authenticatedStudent.programme+"** but does not establish an AI/ML elective registration pathway. The source available here does not state a prerequisite or a semester for this elective.\n\nSo I cannot confirm that you are eligible or that it is available to your cohort. Do not assume COMP301 or another course is a prerequisite unless your current course plan says so. Confirm the offering, prerequisite and registration eligibility with your Faculty Advisor or Programme Chair.";
+      })()
+    : undefined;
   const lawFacultyAnswer = deterministicLawFacultyAnswer(
     effectiveQuestion,
     pages as WebsiteSearchHit[],
@@ -2213,8 +2273,10 @@ export async function POST(request: Request) {
   pipeline.push("Built a source-grounded prompt prioritising VU academic documents and explicit untrusted-content boundaries");
   let visualization: any;
   let answer:string;
-  const attendanceIntent=/\b(attendance|attend|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion);
-  const deterministicAttendance=attendanceIntent?attendancePolicyAnswer(academicMatches):undefined;
+  const attendanceIntent=/\b(attendance|attend\w*|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion);
+  const deterministicAttendance=attendanceIntent
+    ? (attendancePolicyAnswer(academicMatches,effectiveQuestion) || "I could not retrieve the applicable attendance clause from the supplied Student Handbook/SOP excerpts. I will not guess the eligibility threshold. Please check the August 2026 Student Handbook, Clauses 7.2–7.6, and confirm the final course-wise Digii figure with your Faculty Advisor.")
+    : undefined;
   const profileProgramme=String(profile.program||"");
   const profileSemester=String(profile.semester||"");
   const programmeMissing=!profileProgramme||profileProgramme==="Not specified";
@@ -2274,6 +2336,48 @@ export async function POST(request: Request) {
           : "I could not identify any future UCOR-coded courses remaining in the supplied semester-spread records for your admission batch. Please confirm the official University-Core requirements with your Faculty Advisor.";
       })()
     : undefined;
+  const asksAllRemainingCourses=/\b(?:list|show|give me|what are|which are|all)\b/i.test(effectiveQuestion) &&
+    /\bcourses?\b/i.test(effectiveQuestion) &&
+    /\b(?:yet to complete|remaining|still need to complete|have not completed|haven't completed|not completed|left to complete|need to complete)\b/i.test(effectiveQuestion);
+  const remainingCoursesAnswer=asksAllRemainingCourses
+    ? (() => {
+        const batch=String(authenticatedStudent.admission_batch||"");
+        const currentSemester=authenticatedStudent.current_semester===null?0:Number(authenticatedStudent.current_semester||0);
+        const planRows=ACADEMIC_KNOWLEDGE.courseRecords.filter((record)=>
+          String(record.batch||"")===batch &&
+          String(record.programme||"").toLowerCase()==="b.tech" &&
+          record.document_type==="semester_spread" &&
+          record.is_course_record!==false &&
+          Boolean(record.course_code)
+        ).sort((a,b)=>Number(a.semester)-Number(b.semester)||String(a.course_code).localeCompare(String(b.course_code)));
+        const uniqueRows=[...new Map(planRows.map((record)=>[String(record.course_code||"").replace(/[\\s-]/g,"").toUpperCase(),record])).values()];
+        const completed=new Set(authenticatedStudent.completed_course_codes.map((code)=>String(code).replace(/[\\s-]/g,"").toUpperCase()));
+        const outstanding=uniqueRows.flatMap((record)=>{
+          const code=String(record.course_code||"").replace(/[\\s-]/g,"").toUpperCase();
+          const studentRecord=authenticatedStudent.academic_records.find((item)=>String(item.course_code||"").replace(/[\\s-]/g,"").toUpperCase()===code);
+          const status=String(studentRecord?.status||"").trim().toLowerCase();
+          if(status==="passed"||completed.has(code)) return [];
+          let label="Result not recorded in this profile — verify before treating it as incomplete";
+          if(status==="failed"||authenticatedStudent.failed_course_codes.some((item)=>String(item).replace(/[\\s-]/g,"").toUpperCase()===code)) label="Failed / backlog";
+          else if(status.includes("progress")) label="In progress";
+          else if(Number(record.semester)>currentSemester) label="Upcoming in the batch plan; no attempt recorded yet";
+          else if(status==="unknown") label="Result marked Unknown — verify the official result";
+          return [{record,label}];
+        });
+        if(!planRows.length) return "I could not find a batch-specific B.Tech semester-spread plan for admission batch "+batch+". I cannot produce a complete outstanding-course list without that plan.";
+        if(!outstanding.length) return "**No unpassed courses were identified** in the supplied "+batch+" B.Tech plan against your authenticated synthetic profile. This is not an official degree audit; verify it with your Faculty Advisor.";
+        const groups=[...new Set(outstanding.map(item=>Number(item.record.semester)))].sort((a,b)=>a-b);
+        const lines=groups.map(semester=>{
+          const items=outstanding.filter(item=>Number(item.record.semester)===semester);
+          return "**Semester "+semester+"**\n"+items.map(({record,label})=>"- **"+record.course_code+" — "+record.course_title+"** ("+record.credits+" credits): "+label).join("\n");
+        });
+        const failed=outstanding.filter(item=>item.label==="Failed / backlog").length;
+        const inProgress=outstanding.filter(item=>item.label==="In progress").length;
+        const upcoming=outstanding.filter(item=>item.label.startsWith("Upcoming")).length;
+        const unconfirmed=outstanding.length-failed-inProgress-upcoming;
+        return "**Courses not recorded as passed for "+authenticatedStudent.name+" (B.Tech, admission batch "+batch+")**\n\n"+lines.join("\n\n")+"\n\n**Summary:** "+outstanding.length+" course(s) are not recorded as passed: "+failed+" failed/backlog, "+inProgress+" in progress, "+upcoming+" upcoming in the plan, and "+unconfirmed+" with an unconfirmed or missing result.\n\nThe course list comes from the batch workbook; statuses come from your authenticated fictional profile. In-progress, failed and unknown results are not counted as completed. This is a synthetic assignment record, not an official transcript or degree audit.";
+      })()
+    : undefined;
   const asksAcademicWritingEligibility=/\b(?:academic|acdemic) writing\b/i.test(effectiveQuestion)&&
     /\b(?:can i take|ca i take|can i enrol|can i enroll|can i register|am i eligible|eligibility|allowed to take|take this course)\b/i.test(effectiveQuestion);
   const academicWritingAnswer=asksAcademicWritingEligibility
@@ -2307,6 +2411,14 @@ export async function POST(request: Request) {
     answer=failedCourseAnswer;
     modelUsed="Deterministic authenticated synthetic-profile failed-course lookup";
     pipeline.push("Listed failed course records only from the authenticated synthetic profile; did not call the answer-generation model");
+  }else if(remainingCoursesAnswer){
+    answer=remainingCoursesAnswer;
+    modelUsed="Deterministic batch-specific remaining-course audit against the authenticated synthetic profile";
+    pipeline.push("Compared all unique course rows in the authenticated student's admission-batch semester-spread plan against passed, failed, in-progress and unknown profile statuses");
+  }else if(generativeAiElectiveAnswer){
+    answer=generativeAiElectiveAnswer;
+    modelUsed="Deterministic official programme-page and batch-course-plan verification";
+    pipeline.push("Checked the public AI/ML programme elective list against the signed-in student's exact admission-batch course plan; did not infer prerequisites or cohort eligibility");
   }else if(academicWritingAnswer){
     answer=academicWritingAnswer;
     modelUsed="Deterministic batch-specific Academic Writing course and prerequisite check";
