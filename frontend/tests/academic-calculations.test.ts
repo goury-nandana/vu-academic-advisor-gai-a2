@@ -52,7 +52,7 @@ describe("repeat-course academic calculations", () => {
 
   it("prints both actual repeat attempts while counting earned credits once", () => {
     const pdf = createSyntheticMarksheetPdf(nandita).toString("ascii");
-    expect(pdf).toContain("Cumulative completed credits (unique course codes passed): 117");
+    expect(pdf).toContain("Cumulative completed credits \\(unique course codes passed\\): 117");
     expect(pdf).toMatch(/2\s+COMP201/);
     expect(pdf).toMatch(/6\s+COMP201/);
     expect(pdf).toContain("Failed");

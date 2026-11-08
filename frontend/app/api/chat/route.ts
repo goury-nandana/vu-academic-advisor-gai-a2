@@ -1473,7 +1473,7 @@ function retrieveAcademic(
   if (progressionIntent) {
     const registrationRules = ACADEMIC_KNOWLEDGE.documents.find((document) =>
       /Student Handbook/i.test(document.source || "") && Number(document.page) === 25 &&
-      /2\.10\.1/.test(document.text || "") && /2\.11/.test(document.text || "")
+      /2\.10\.1/.test(document.text || "")
     );
     const yearlyProgressionRules = ACADEMIC_KNOWLEDGE.documents.find((document) =>
       /Student Handbook/i.test(document.source || "") && Number(document.page) === 42 &&
@@ -2412,7 +2412,7 @@ export async function POST(request: Request) {
     ? "**SGPA vs CGPA**\n\n- **SGPA (Semester Grade Point Average):** measures your weighted grade-point average for courses registered in one semester.\n- **CGPA (Cumulative Grade Point Average):** measures your cumulative weighted grade-point average across courses registered up to and including the latest completed semester.\n\nBoth are credit-weighted: multiply each course's credits by its grade point, add those products, then divide by the total credits of the included courses. The Handbook states that both are calculated to two decimal places. [Clauses 8.16–8.17]" + gradeAverageCitation + "\n\n**Remember:** SGPA is semester-specific; CGPA is cumulative."
     : undefined;
   const progressionRegistrationIndex = academicMatches.findIndex((document) =>
-    /Student Handbook/i.test(document.source || "") && /2\.10\.1/.test(document.text || "") && /2\.11/.test(document.text || "")
+    /Student Handbook/i.test(document.source || "") && /2\.10\.1/.test(document.text || "")
   );
   const progressionCriteriaIndex = academicMatches.findIndex((document) =>
     /Student Handbook/i.test(document.source || "") && /12\.1/.test(document.text || "") && /Minimum CGPA of 4\.00/.test(document.text || "")
