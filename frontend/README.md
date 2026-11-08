@@ -1,20 +1,31 @@
 # VU Academic Advisor — Next.js frontend
 
-Design: white chat UI with one campus photo background, collapsible frosted side panel, fixed header pill
-(green ring while the advisor is answering, fades 5 s after the reply), and one bottom bar (mic, camera, file, send).
+The current web application is a Next.js 15 / React 19 app. Vercel serves the frontend and its backend API routes from the same project.
 
 ## Run locally
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-## Deploy (Vercel)
-Import the repo, set **Root Directory** to `frontend`.
+The app runs at `http://localhost:3000`.
 
-## Connecting the advisor backend
-All backend access is in `app/advisor.ts`. Set `NEXT_PUBLIC_ADVISOR_API_URL` (a public URL only; keep Groq keys on the server)
-in Vercel → Project → Settings → Environment Variables. Without it the page shows a "not connected" reply.
+## Backend and environment
 
-Expected API: `POST {URL}/chat` (multipart/form-data) with `question`, `history` (JSON), `profile` (JSON), `files[]`,
-returning JSON `{ "answer": string, "sources": [{ "title": string, "url"?: string }] }`.
+The browser uses the same-origin API routes:
+
+- `POST /api/chat` — authenticated academic chat, source retrieval and supported file uploads.
+- `POST /api/transcribe` — authenticated voice transcription.
+- `POST /api/auth/login`, `POST /api/auth/signup`, `GET /api/auth/session`, and `POST /api/auth/logout` — synthetic demo-account sessions.
+- `GET /api/marksheet` — PDF for the currently authenticated synthetic profile.
+
+Set `GROQ_API_KEY` as a server-only environment variable. In production, also set `SESSION_SECRET` to a dedicated random secret of at least 32 characters. Do not use a `NEXT_PUBLIC_*` variable for either secret.
+
+Chat and transcription use the signed HttpOnly session cookie. Student identity is derived by the server; client-supplied profile details are not an authority.
+
+## Deploy on Vercel
+
+Connect this GitHub repository and set **Root Directory** to `frontend`. Use the Next.js framework preset and `npm ci` for dependency installation. The root repository README documents the assignment architecture, data exports, test commands, limitations and privacy boundary.
+
+The ten demo profiles and their shared classroom password are fictional test data only. Do not enter actual VU student records or credentials.
