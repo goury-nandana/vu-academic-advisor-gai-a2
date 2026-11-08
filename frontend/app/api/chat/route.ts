@@ -2693,10 +2693,17 @@ const context=safeData(JSON.stringify({
         const rows=writingRows.map((record)=>{
           const statusRecord=authenticatedStudent.academic_records.find((item)=>String(item.course_code||"").replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase());
           const status=String(statusRecord?.status||"").toLowerCase();
-          const prerequisiteCodes=String(record.prerequisite||"").trim()&&!/^(?:nil|none|na|n\/a|-)$/i.test(String(record.prerequisite||"").trim())?String(record.prerequisite).split(/[,;]+/).map((code)=>code.replace(/[\s-]/g,"").toUpperCase()).filter(Boolean):[];
-          const missing=prerequisiteCodes.filter((code)=>!authenticatedStudent.completed_course_codes.some((passed)=>String(passed).replace(/[\s-]/g,"").toUpperCase()===code));
-          if(status==="passed"||authenticatedStudent.completed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase())) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: your profile records this course as **Passed**; you have already completed it.";
+          const prerequisiteParse=parsePrerequisiteExpression(record.prerequisite);
+          const prerequisiteCodes=prerequisiteParse.codes;
+          const completedSet=new Set(authenticatedStudent.completed_course_codes.map((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()));
+          const failedSet=new Set(authenticatedStudent.failed_course_codes.map((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()));
+          const hasUnresolvedSlash=prerequisiteParse.ambiguousSlashGroups.some((group)=>
+            !group.every((code)=>completedSet.has(code))&&!group.every((code)=>failedSet.has(code))
+          );
+          const missing=prerequisiteCodes.filter((code)=>!completedSet.has(code));
+          if(status==="passed"||status==="passed on repeat"||authenticatedStudent.completed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase())) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: your profile records this course as **Passed**; you have already completed it.";
           if(status.includes("progress")) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: your profile records this course as **In Progress**.";
+          if(hasUnresolvedSlash) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: the source uses slash-separated prerequisite notation ("+prerequisiteParse.ambiguousSlashGroups.map((group)=>group.join("/")).join("; ")+") but does not say whether these courses are alternatives or jointly required. I cannot confirm eligibility from that notation.";
           if(missing.length) return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: the prerequisite(s) "+missing.join(", ")+" are not recorded as passed in your profile.";
           return "**"+record.course_code+" — "+record.course_title+" (Semester "+record.semester+")**: the batch plan lists prerequisite(s) "+(prerequisiteCodes.length?prerequisiteCodes.join(", "):"None")+". Your profile does not show a passed or in-progress attempt. Direct prerequisites appear met; registration is still subject to university approval and course availability.";
         });
