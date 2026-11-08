@@ -1396,6 +1396,8 @@ function retrieveAcademic(
       /SOP STUDENT/i.test(document.source || "") && pattern.test(document.text || "")
     )?.document;
     addDocument(handbook(/seventy five percent|75\s*%/i));
+    // Clause 4.5 separately states an 80% Code of Conduct requirement.
+    addDocument(handbook(/attendance requirement of 80\s*%/i));
     addDocument(handbook(/sixty five percent|65\s*%/i));
     addDocument(handbook(/shall not be permitted to appear for the End Term/i));
     addDocument(handbook(/Government Regulatory Bodies/i));
@@ -1434,6 +1436,7 @@ function attendancePolicyAnswer(documents: AcademicDocument[], question = ""): s
     documents.find((document) => sourcePattern.test(document.source || "") && contentPattern.test(document.text || ""));
   const handbookMinimum = find(/Student Handbook/i, /seventy five percent|75\s*%/i);
   if (!handbookMinimum) return undefined;
+  const handbookConduct80 = find(/Student Handbook/i, /attendance requirement of 80\s*%/i);
 
   const handbookRelaxation = find(/Student Handbook/i, /sixty five percent|65\s*%/i);
   const handbookShortage = find(/Student Handbook/i, /shall not be permitted to appear for the End Term/i);
@@ -1445,7 +1448,10 @@ function attendancePolicyAnswer(documents: AcademicDocument[], question = ""): s
   };
 
   let answer = "**VU attendance rule**\n\n";
-  answer += "- **Minimum:** 75% attendance in each registered course, calculated course by course, is required to sit the End-Term Examination." + cite(handbookMinimum) + "\n";
+  answer += "- **End-Term examination threshold (Clause 7.2):** 75% attendance in each registered course, calculated course by course, is required to sit the End-Term Examination." + cite(handbookMinimum) + "\n";
+  if (handbookConduct80) {
+    answer += "- **Separate Code of Conduct wording (Clause 4.5):** The Handbook also says students must comply with an 80% attendance requirement; it says medical or other legitimate reasons may be reviewed under the Academic Regulations. This is a separate statement from the 75% End-Term clause. The Handbook does not explain how the two figures interact, so confirm which standard applies to your programme with the Faculty Advisor or Registrar." + cite(handbookConduct80) + "\n";
+  }
   if (handbookRelaxation) {
     answer += "- **Approved relaxation:** Serious medical exigencies or qualifying State/National/International representation may qualify for relaxation, but attendance cannot fall below 65%. Prescribed documents, recommendation and Vice-Chancellor approval are required; it is not automatic." + cite(handbookRelaxation) + "\n";
   }
@@ -2360,8 +2366,9 @@ export async function POST(request: Request) {
           let label="Result not recorded in this profile — verify before treating it as incomplete";
           if(status==="failed"||authenticatedStudent.failed_course_codes.some((item)=>String(item).replace(/[\\s-]/g,"").toUpperCase()===code)) label="Failed / backlog";
           else if(status.includes("progress")) label="In progress";
-          else if(Number(record.semester)>currentSemester) label="Upcoming in the batch plan; no attempt recorded yet";
-          else if(status==="unknown") label="Result marked Unknown — verify the official result";
+          else if(status==="unknown"||authenticatedStudent.unknown_course_codes.some((item)=>String(item).replace(/[\\s-]/g,"").toUpperCase()===code)) label="Result marked Unknown — verify the official result";
+          else if(authenticatedStudent.current_semester!==null&&Number(record.semester)>currentSemester) label="Upcoming in the batch plan; no attempt recorded yet";
+          else if(authenticatedStudent.current_semester===null) label="Not recorded as passed in this graduated profile — verify the official transcript";
           return [{record,label}];
         });
         if(!planRows.length) return "I could not find a batch-specific B.Tech semester-spread plan for admission batch "+batch+". I cannot produce a complete outstanding-course list without that plan.";
@@ -2557,7 +2564,12 @@ export async function POST(request: Request) {
         detail,
       });
       return NextResponse.json(
-        {error:"Answer generation failed: "+detail},
+        {
+          error: responseStatus===429
+            ? "The advisor is temporarily at capacity. Please try again shortly."
+            : "The advisor could not generate a response. Please retry or rephrase your question.",
+          code: responseStatus===429 ? "PROVIDER_RATE_LIMITED" : "ANSWER_GENERATION_FAILED",
+        },
         {
           status: responseStatus,
           headers: providerError.retryAfter ? {"Retry-After": providerError.retryAfter} : undefined,
