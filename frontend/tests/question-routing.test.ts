@@ -10,10 +10,15 @@ beforeAll(async () => {
   POST = (await import("../app/api/chat/route")).POST;
 });
 
-async function ask(question: string) {
+async function ask(
+  question: string,
+  profileId = "SYN-106",
+  history: Array<{ role: "user" | "assistant"; text: string }> = []
+) {
   const form = new FormData();
   form.append("question", question);
-  const cookie = auth.demoSessionCookieName + "=" + auth.createSessionToken("SYN-106");
+  form.append("history", JSON.stringify(history));
+  const cookie = auth.demoSessionCookieName + "=" + auth.createSessionToken(profileId);
   const response = await POST(new Request("http://localhost/api/chat", {
     method: "POST",
     body: form,
@@ -59,6 +64,65 @@ describe("academic question routing", () => {
     expect(result.answer).toMatch(/VU attendance rule/i);
     expect(result.answer).toContain("75%");
     expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
+  });
+
+  it("applies the 65% floor to a percentage-only follow-up about exam eligibility", async () => {
+    const result = await ask(
+      "I have 64%, can I appear for the exam?",
+      "SYN-103",
+      [
+        { role: "user", text: "minimum attendance requirement?" },
+        { role: "assistant", text: "**VU attendance rule** The normal attendance threshold is 75% in each registered course. Special medical relaxation cannot go below 65%." },
+      ]
+    );
+    expect(result.status).toBe(200);
+    expect(result.answer).toContain("64%");
+    expect(result.answer).toMatch(/65% absolute minimum/i);
+    expect(result.answer).toMatch(/not be eligible to sit the End-Term Examination/i);
+    expect(result.answer).not.toMatch(/could not generate|GROQ_API_KEY/i);
+  });
+
+  it("explains the medical-leave process instead of giving only the generic attendance rule", async () => {
+    const result = await ask("I missed a class due to illness. Can I get attendance?");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/serious medical exigencies/i);
+    expect(result.answer).toMatch(/hospitalization, trauma or contagious disease/i);
+    expect(result.answer).toMatch(/Faculty Advisor/i);
+    expect(result.answer).toMatch(/day you rejoin/i);
+    expect(result.answer).toMatch(/Digii/i);
+    expect(result.answer).toMatch(/entire day/i);
+    expect(result.answer).toMatch(/cannot confirm that attendance will be granted/i);
+    expect(result.answer).not.toMatch(/limited to B\.Tech academic advising/i);
+  });
+
+  it("does not carry an old course lookup into a personal current-semester L-T-P request", async () => {
+    const result = await ask(
+      "L-T-P structure of my current course structure",
+      "SYN-104",
+      [
+        { role: "user", text: "course code of calculus" },
+        { role: "assistant", text: "**Course details** Calculus is listed in the semester-spread workbook. Course code MATH208." },
+      ]
+    );
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 4 L-T-P for Kavya Iyer/i);
+    expect(result.answer).toContain("MATH206");
+    expect(result.answer).toContain("COMP301");
+    expect(result.answer).toContain("0-0-4");
+    expect(result.answer).not.toMatch(/Calculus|MATH208/);
+  });
+
+  it("interprets 'my all courses' as the signed-in student's current-semester course list for L-T-P", async () => {
+    const result = await ask("L-T-P of my all courses", "SYN-104");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Semester 4 L-T-P for Kavya Iyer/i);
+    for (const code of ["UCOR205", "MATH206", "COMP207", "COMP301", "COMP205", "MATH301"]) {
+      expect(result.answer).toContain(code);
+    }
+    expect(result.answer).toContain("2-1-0");
+    expect(result.answer).toContain("0-0-4");
+    expect(result.answer).toContain("3-1-0");
+    expect(result.answer).not.toMatch(/GROQ_API_KEY|could not generate/i);
   });
 
   it("does not reject an arrear question as unrelated", async () => {

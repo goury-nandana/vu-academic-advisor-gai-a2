@@ -399,6 +399,10 @@ function getContextualBtechCourseLtpQuestion(
   currentQuestion: string
 ): string | undefined {
   if (!/\bl[\s-]*t[\s-]*p\b|\bltp\b/i.test(currentQuestion) || history.length < 2) return undefined;
+  const explicitlyPersonalCurrentCourseRequest =
+    /\b(?:my|our)\b.{0,45}\b(?:current|this|all)\b.{0,35}\b(?:courses?|subjects?)\b/i.test(currentQuestion) ||
+    /\b(?:current|this)\s+(?:course|subject)\s+(?:structure|list)\b/i.test(currentQuestion);
+  if (explicitlyPersonalCurrentCourseRequest) return undefined;
   const latest = history[history.length - 1];
   if (latest.role !== "assistant" || !/course details|course code|semester-spread/i.test(latest.text)) return undefined;
   const previousUser = [...history.slice(0, -1)].reverse().find((item) => item.role === "user");
@@ -1398,11 +1402,15 @@ function retrieveAcademic(
 ): AcademicDocument[] {
   if (structuredCourseSearch) return structuredCourseSearch.documents;
   const query = queryWords(question);
+  const medicalAttendancePolicyIntent =
+    /\b(?:medical leave|medical certificate|fitness certificate|hospitali[sz]ation|trauma|contagious disease)\b/i.test(question) &&
+    /\b(?:attendance|class|lecture|leave|absence|miss|certificate|request|relaxation)\b/i.test(question);
   const attendanceIntent =
     /\b(attendance|attend|absen(?:ce|t)?|condonation|shortage|present|minimum attendance)\b/i.test(question) ||
     /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(question) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(question) ||
-    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question);
+    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(question) ||
+    medicalAttendancePolicyIntent;
   if (isBtechMinorQuestion(question) || (isMinorQuestion(question) && isBtechProgramme(programme))) {
     return retrieveBtechMinorBatches(getBtechMinorBatches(question));
   }
@@ -1590,6 +1598,55 @@ function attendancePolicyAnswer(documents: AcademicDocument[], question = ""): s
   }
   return answer;
 }
+
+function medicalAttendanceProcedureAnswer(documents: AcademicDocument[]): string | undefined {
+  const find = (sourcePattern: RegExp, contentPattern: RegExp) =>
+    documents.find((document) => sourcePattern.test(document.source || "") && contentPattern.test(document.text || ""));
+  const handbookMedical = find(
+    /Student Handbook/i,
+    /serious medical exigencies of hospitalization|trauma or contagious disease/i
+  );
+  const sopMedicalProcess = find(
+    /SOP STUDENT/i,
+    /raise a medical leave request on Digii portal/i
+  );
+  const sopCertificateScope = find(
+    /SOP STUDENT/i,
+    /medical certificate will be considered only for the entire day/i
+  );
+  const sopAttendanceContact = find(
+    /SOP STUDENT/i,
+    /For any concern regarding the attendance, student to contact the respective faculty members/i
+  );
+  const handbookAttendance75 = find(
+    /Student Handbook/i,
+    /seventy five percent|75\s*%/i
+  );
+  const handbookAttendance65 = find(
+    /Student Handbook/i,
+    /minimum requirement of attendance be less than sixty five percent|sixty five percent|65\s*%/i
+  );
+  if (!handbookMedical || !sopMedicalProcess) return undefined;
+  const cite = (document?: AcademicDocument) => {
+    if (!document) return "";
+    const index = documents.indexOf(document);
+    return index >= 0 ? " [" + (index + 1) + "]" : "";
+  };
+
+  let answer = "**Missed class due to illness — attendance and medical leave**\n\n";
+  answer += "A missed class is not automatically converted into attended attendance. The Handbook describes additional attendance relaxation for **serious medical exigencies**, specifically hospitalization, trauma or contagious disease affecting the student or a family member. It does not promise automatic attendance credit for every short illness or an individual missed lecture." + cite(handbookMedical) + "\n\n";
+  answer += "**What the VU documents say to do:**\n\n";
+  answer += "1. Contact the respective course faculty member about the attendance concern." + cite(sopAttendanceContact) + "\n";
+  answer += "2. For a qualifying serious medical case, submit the leave request and supporting documents to your Faculty Advisor for recommendation to the Program Chair. The Handbook makes any additional relaxation subject to Vice-Chancellor approval." + cite(handbookMedical) + "\n";
+  answer += "3. The SOP says that the approved/signed medical application and specified documents must be submitted to the concerned department on the **day you rejoin**, and a medical-leave request must also be raised on **Digii** with all documents. It says medical leave will not be accepted if this step is missed." + cite(sopMedicalProcess) + "\n";
+  if (sopCertificateScope) {
+    answer += "4. The SOP says a medical certificate is considered for the **entire day**, not for specific class periods or hours." + cite(sopCertificateScope) + "\n";
+  }
+  answer += "\n**Attendance limits:** The normal End-Term threshold is 75% in each registered course. For the special medical relaxation described in the Handbook, attendance cannot be reduced below 65%; meeting the 65% floor does not itself grant approval." + cite(handbookAttendance75) + cite(handbookAttendance65) + "\n\n";
+  answer += "So, for an ordinary one-class illness, I cannot confirm that attendance will be granted. Check your course-wise Digii record and speak to the course faculty and Faculty Advisor promptly. A certificate alone does not guarantee condonation.";
+  return answer;
+}
+
 function academicSourceUrl(source: string, page?: number | string) {
   const path = source.split("/").map((part) => encodeURIComponent(part)).join("/");
   const pageNumber = Number(page);
@@ -2049,6 +2106,15 @@ export async function POST(request: Request) {
   const effectiveQuestion = useProfileBatchForMinor
     ? effectiveQuestionBase + " (admission batch " + authenticatedStudent.admission_batch + ", from the signed-in profile)"
     : effectiveQuestionBase;
+  const latestPriorUserMessage = [...history].reverse().find((item) => item.role === "user");
+  const latestPriorAssistantMessage = [...history].reverse().find((item) => item.role === "assistant");
+  const recentAttendanceContext =
+    /(?:VU attendance rule|attendance requirement|attendance recorded on Digii|course-wise attendance|attendance threshold)/i.test(latestPriorAssistantMessage?.text || "") ||
+    /\b(?:attendance|attend\w*|absence|absent|condonation|shortage|missed\s+(?:a\s+)?classes?)\b/i.test(latestPriorUserMessage?.text || "");
+  const attendancePercentageFollowUp =
+    /\b\d{1,3}(?:\.\d+)?\s*%/.test(effectiveQuestion) &&
+    /\b(?:exam(?:ination)?|end[ -]?term|appear|sit|eligible)\b/i.test(effectiveQuestion) &&
+    recentAttendanceContext;
   // genericAttachmentInspection: triggered when student uploads file(s) and asks to inspect/summarise them.
   // Also covers short "summarise this", "what is this", "explain this" when files are attached.
   const genericAttachmentInspection = files.length > 0 && (
@@ -2112,7 +2178,11 @@ export async function POST(request: Request) {
       })]
     : [];
   const explicitRequestedSemester=extractCourseSemester(effectiveQuestion);
-  const asksCurrentSemesterCourses=/\b(?:(?:my|our)\s+)?(?:current|this)\s+(?:courses?|subjects?)\b/i.test(effectiveQuestion);
+  const asksAllMyCourses=/\b(?:all\s+)?(?:my|our)\s+(?:all\s+)?(?:courses?|subjects?)\b/i.test(effectiveQuestion);
+  const asksCurrentSemesterCourses=
+    /\b(?:(?:my|our)\s+)?(?:current|this)\s+(?:courses?|subjects?)\b/i.test(effectiveQuestion) ||
+    /\b(?:my|our)\s+(?:current|this)\s+(?:course|subject)\s+(?:structure|list)\b/i.test(effectiveQuestion) ||
+    asksAllMyCourses;
   const asksCurrentSemester=/\b(?:my\s+)?current\s*(?:semester|sem)|\bthis\s+sem(?:ester)?\b/i.test(effectiveQuestion)||asksCurrentSemesterCourses;
   const requestedSemester=explicitRequestedSemester??(asksCurrentSemester&&authenticatedStudent.current_semester!==null?Number(authenticatedStudent.current_semester):undefined);
   const asksOwnSemesterCourses=(/\b(?:did\s+i\s+have|did\s+i\s+take|i\s+had|i\s+took|my|of\s+my)\b/i.test(effectiveQuestion) && /\b(?:courses?|subjects?)\b/i.test(effectiveQuestion) && /\b(?:semester|sem)\b/i.test(effectiveQuestion)) || asksCurrentSemesterCourses;
@@ -2128,6 +2198,7 @@ export async function POST(request: Request) {
               const planRow=ACADEMIC_KNOWLEDGE.courseRecords.find((course)=>
                 String(course.course_code||"").replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()&&
                 String(course.batch||"")===String(authenticatedStudent.admission_batch||"")&&
+                String(course.programme||"").toLowerCase()==="b.tech"&&
                 Number(course.semester)===requestedSemester&&course.document_type==="semester_spread"&&course.is_course_record!==false
               );
               const ltp=[planRow?.L,planRow?.T,planRow?.P].map((value)=>value===null||value===undefined||value===""?"Not specified":String(value)).join("-");
@@ -2173,15 +2244,19 @@ export async function POST(request: Request) {
       ? runAcademicAdvisorAgentWorkflow(syntheticStudent.id,requestedSyntheticCourseCode,ACADEMIC_KNOWLEDGE.courseRecords)
       : undefined;
   const programmeDirectoryIntent = isProgrammeDirectoryQuestion(effectiveQuestion);
+  const academicRetrievalQuestion = attendancePercentageFollowUp
+    ? effectiveQuestion + " attendance policy course-wise attendance requirement 75% 65% End-Term examination"
+    : effectiveQuestion;
   const baseAcademicMatches:AcademicDocument[]=programmeDirectoryIntent || onlyImagesUploaded
     ? []
-    : retrieveAcademic(effectiveQuestion,syntheticStudent?.programme||profile.program,structuredCourseSearch);
+    : retrieveAcademic(academicRetrievalQuestion,syntheticStudent?.programme||profile.program,structuredCourseSearch);
   const syntheticEvidenceDocuments=[...(syntheticAgentWorkflow?.evidenceRecords||[]),...profilePrerequisiteEvidenceRecords].map((record)=>courseRecordDocument(record));
   const academicMatches=[...baseAcademicMatches,...syntheticEvidenceDocuments].filter((document,index,all)=>{
     const key=[document.source||"",document.title||"",document.section||"",document.text.slice(0,100)].join("|");
     return all.findIndex((candidate)=>[candidate.source||"",candidate.title||"",candidate.section||"",candidate.text.slice(0,100)].join("|")===key)===index;
   });
-  const suppressWebsiteForAttendance = /\b(attendance|attendance policy|absence|condonation|shortage|medical leave)\b/i.test(effectiveQuestion);
+  const suppressWebsiteForAttendance = attendancePercentageFollowUp ||
+    /\b(attendance|attendance policy|absence|condonation|shortage|medical leave)\b/i.test(effectiveQuestion);
   const localWebsiteMatches = socialAnswer || suppressWebsiteForAttendance || onlyImagesUploaded
     ? []
     : programmeDirectoryIntent ? retrieveProgrammeDirectoryChunks()
@@ -2400,13 +2475,21 @@ const context=safeData(JSON.stringify({
   pipeline.push("Built a source-grounded prompt prioritising VU academic documents and explicit untrusted-content boundaries");
   let visualization: any;
   let answer:string;
+  const medicalAttendanceIntent =
+    /\b(?:illness|sick|medical|hospitali[sz]ation|trauma|contagious disease|doctor|medical certificate|fitness certificate)\b/i.test(effectiveQuestion) &&
+    /\b(?:attendance|attend|class|classes|lecture|absence|absent|leave|missed|miss|certificate|condonation|relaxation)\b/i.test(effectiveQuestion);
   const attendanceIntent =
     /\b(attendance|attend\w*|absence|absent|condonation|shortage|minimum attendance)\b/i.test(effectiveQuestion) ||
     /\b(?:miss|missed|missing)\s+(?:a\s+)?class(?:es)?\b/i.test(effectiveQuestion) ||
     /\babsence\b.{0,45}\b(?:illness|medical|sick|health)\b/i.test(effectiveQuestion) ||
-    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(effectiveQuestion);
+    /\b(?:illness|medical reasons?|sick)\b.{0,45}\b(?:class|classes|lecture|attendance|absence)\b/i.test(effectiveQuestion) ||
+    attendancePercentageFollowUp ||
+    medicalAttendanceIntent;
   const deterministicAttendance=attendanceIntent
-    ? (attendancePolicyAnswer(academicMatches,effectiveQuestion) || "I could not retrieve the applicable attendance clause from the supplied Student Handbook/SOP excerpts. I will not guess the eligibility threshold. Please check the August 2026 Student Handbook, Clauses 7.2–7.6, and confirm the final course-wise Digii figure with your Faculty Advisor.")
+    ? (medicalAttendanceIntent
+        ? (medicalAttendanceProcedureAnswer(academicMatches) || attendancePolicyAnswer(academicMatches,effectiveQuestion))
+        : attendancePolicyAnswer(academicMatches,effectiveQuestion)) ||
+      "I could not retrieve the applicable attendance clause from the supplied Student Handbook/SOP excerpts. I will not guess the eligibility threshold. Please check the August 2026 Student Handbook, Clauses 7.2–7.6, and confirm the final course-wise Digii figure with your Faculty Advisor."
     : undefined;
   const profileProgramme=String(profile.program||"");
   const profileSemester=String(profile.semester||"");
@@ -2664,7 +2747,11 @@ const context=safeData(JSON.stringify({
   }else if(deterministicAttendance){
     answer=deterministicAttendance;
     modelUsed="Deterministic VU Handbook/SOP lookup (no answer-generation model)";
-    pipeline.push("Answered attendance directly from retrieved Handbook and SOP clauses; no LLM-generated policy summary was used");
+    pipeline.push(medicalAttendanceIntent
+      ? "Explained the Handbook's serious-medical-exigency criteria and the SOP's Faculty Advisor, rejoining-day and Digii steps; no LLM-generated policy summary was used"
+      : attendancePercentageFollowUp
+        ? "Applied the attendance percentage to the Handbook's 75% course-wise threshold and 65% special-relaxation floor using the prior attendance exchange as context"
+        : "Answered attendance directly from retrieved Handbook and SOP clauses; no LLM-generated policy summary was used");
   }else{
     if(!key) return NextResponse.json({error:"Advisor service is not configured: the server-side GROQ_API_KEY is missing."},{status:503});
     try{
