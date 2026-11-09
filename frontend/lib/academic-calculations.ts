@@ -45,6 +45,11 @@ export function getCompletedCourseRecords<T extends AcademicCourseRecord>(record
   return [...completed.values()];
 }
 
+function safeCourseCredits(value: unknown): number {
+  const credits = Number(value);
+  return Number.isFinite(credits) && credits >= 0 ? credits : 0;
+}
+
 export function calculateCompletedCourseCredits<T extends AcademicCourseRecord>(records: T[]): {
   total: number;
   courseCodes: string[];
@@ -52,7 +57,7 @@ export function calculateCompletedCourseCredits<T extends AcademicCourseRecord>(
 } {
   const completedRecords = getCompletedCourseRecords(records);
   return {
-    total: completedRecords.reduce((sum, record) => sum + Number(record.credits || 0), 0),
+    total: completedRecords.reduce((sum, record) => sum + safeCourseCredits(record.credits), 0),
     courseCodes: completedRecords.map((record) => record.course_code),
     records: completedRecords,
   };
@@ -75,7 +80,7 @@ export function expandCourseAttempts<T extends AcademicCourseRecord>(records: T[
         record,
         course_code: record.course_code,
         course_title: record.course_title || "",
-        credits: Number(record.credits || 0),
+        credits: safeCourseCredits(record.credits),
         semester: Number(attempt.semester),
         grade: attempt.grade ?? null,
         status: String(attempt.status || "Not recorded"),
