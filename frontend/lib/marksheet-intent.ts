@@ -46,7 +46,12 @@ export function classifyMarksheetRequest(
         .filter(Boolean);
       const isCurrent = studentIdentities.some((identity) => currentIdentities.includes(identity));
       if (isCurrent) return false;
-      return studentIdentities.some((identity) => includesIdentity(normalizedQuestion, identity));
+      const nameTokens = String(student.name || "")
+        .split(/\\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3);
+      const searchableIdentities = [...studentIdentities, ...nameTokens];
+      return searchableIdentities.some((identity) => includesIdentity(normalizedQuestion, identity));
     });
     if (otherAccountMentioned) return "other";
   }
