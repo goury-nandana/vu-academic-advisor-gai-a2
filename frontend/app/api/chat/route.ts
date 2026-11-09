@@ -2844,11 +2844,10 @@ const context=safeData(JSON.stringify({
   const explicitLtpCourseAnswer = structuredCourseSearch?.ltpOnly
     ? structuredCourseAnswer(structuredCourseSearch)
     : undefined;
+  const isLtpQuery = /\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(effectiveQuestion);
   const broadLtpHelpAnswer =
-    /\b(?:l[\s-]*t[\s-]*p|ltp)\b/i.test(effectiveQuestion) &&
-    /\bany\b/i.test(effectiveQuestion) &&
-    !structuredCourseSearch
-      ? "I can look up the L-T-P structure from the B.Tech semester-spread records. Please give me a course code or title (for example, COMP302), and I’ll show the Lecture, Tutorial and Practical values for the available admission batches."
+    isLtpQuery && !structuredCourseSearch
+      ? "I can look up the L-T-P structure from the B.Tech semester-spread records. Please give me a course code or exact title (for example, **COMP302** or **Machine Learning**), and I’ll show the Lecture, Tutorial and Practical values for the available admission batches."
       : undefined;
   const asksFailedCourses=/\b(?:did i fail any(?:thing|course|courses)|did i fail naything|have i failed any(?:thing|course|courses)|have i failed naything|any failed courses|any backlogs?|my backlogs?|failed courses? in my record)\b/i.test(effectiveQuestion);
   const failedProfileRecords=authenticatedStudent.academic_records.filter((record)=>String(record.status||"").toLowerCase()==="failed"||authenticatedStudent.failed_course_codes.some((code)=>String(code).replace(/[\s-]/g,"").toUpperCase()===String(record.course_code||"").replace(/[\s-]/g,"").toUpperCase()));
