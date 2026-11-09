@@ -47,7 +47,7 @@ export function classifyMarksheetRequest(
       const isCurrent = studentIdentities.some((identity) => currentIdentities.includes(identity));
       if (isCurrent) return false;
       const nameTokens = String(student.name || "")
-        .split(/\\s+/)
+        .split(/\s+/)
         .map((token) => token.trim())
         .filter((token) => token.length >= 3);
       const searchableIdentities = [...studentIdentities, ...nameTokens];

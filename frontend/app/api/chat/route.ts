@@ -2577,7 +2577,8 @@ export async function POST(request: Request) {
       clauseFiveNineSourceIndices.map((index) => " [" + (index + 1) + "]").join("") +
       "\n\nThis comparison is based on the Student Handbook excerpts retrieved for Clauses 5 and 9."
     : undefined;
-  const queryClauseMatch =  const requestedClauseNumber = queryClauseMatch?.[1];
+  const queryClauseMatch = effectiveQuestion.match(/\bclause\s*(?:no\.?\s*)?(\d{1,2}(?:\.\d{1,2})*)\b/i);
+  const requestedClauseNumber = queryClauseMatch?.[1];
   const asksAcademicTermWithClause = /\bacademic\s+term\b/i.test(effectiveQuestion) && Boolean(requestedClauseNumber);
   const academicTermDefinitionIndex = academicMatches.findIndex((document) =>
     /Student Handbook/i.test(document.source || "") &&
