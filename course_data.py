@@ -126,8 +126,8 @@ def normalize_course_code(value):
 
 
 def extract_course_codes(question):
-    """Extract exact three-digit course-code tokens from a question."""
-    pattern = re.compile(r"\b[A-Za-z]{3,5}[\s-]?\d{3}\b")
+    """Extract exact 3- or 4-digit course-code tokens without partial matches."""
+    pattern = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,6}[\s-]?\d{3,4}[A-Za-z]?(?![A-Za-z0-9])")
     return list(dict.fromkeys(normalize_course_code(x) for x in pattern.findall(str(question or ""))))
 
 
