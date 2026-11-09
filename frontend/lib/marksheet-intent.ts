@@ -37,14 +37,16 @@ export function classifyMarksheetRequest(
   if (!isMarksheetIntent) return "none";
 
   if (currentStudent) {
+    const currentIdentities = [currentStudent.username, currentStudent.synthetic_student_id, currentStudent.name]
+      .map((identity) => String(identity || "").trim().toLowerCase())
+      .filter(Boolean);
     const otherAccountMentioned = knownStudents.some((student) => {
-      const isCurrent = [currentStudent.username, currentStudent.synthetic_student_id, currentStudent.name]
-        .some((identity) => identity.toLowerCase() === student.username.toLowerCase() ||
-          identity.toLowerCase() === student.synthetic_student_id.toLowerCase() ||
-          identity.toLowerCase() === student.name.toLowerCase());
+      const studentIdentities = [student.username, student.synthetic_student_id, student.name]
+        .map((identity) => String(identity || "").trim().toLowerCase())
+        .filter(Boolean);
+      const isCurrent = studentIdentities.some((identity) => currentIdentities.includes(identity));
       if (isCurrent) return false;
-      return [student.username, student.synthetic_student_id, student.name]
-        .some((identity) => includesIdentity(normalizedQuestion, identity));
+      return studentIdentities.some((identity) => includesIdentity(normalizedQuestion, identity));
     });
     if (otherAccountMentioned) return "other";
   }
