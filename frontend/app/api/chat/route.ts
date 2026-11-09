@@ -612,6 +612,14 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
     return "You are currently in **Semester " + student.current_semester + "** according to your authenticated synthetic profile. This is demo data, not an official university record.";
   }
   if (/\b(?:vu\s*0?\d{2,3}|syn[-\s]?\d{3}|vusyn\d{3})\b/i.test(normalized) && /\b(?:records?|profile|details?|grades?|marks?|marksheet|transcript|cgpa|courses?|show|tell|see|give|who is|view|access|get|download|generate)\b/i.test(normalized)) {
+    // Allow if the ID in the message matches the logged-in student’s own username or synthetic ID
+    const ownUsername = (student?.username || "").toLowerCase().replace(/\s+/g, "");
+    const ownSynId = (student?.synthetic_student_id || "").toLowerCase().replace(/[-\s]/g, "");
+    const mentionedId = (normalized.match(/\b(?:vu\s*0?\d{2,3}|syn[-\s]?\d{3}|vusyn\d{3})\b/i) || [])[0] || "";
+    const mentionedNorm = mentionedId.toLowerCase().replace(/[-\s]/g, "");
+    if (mentionedNorm && (ownUsername.includes(mentionedNorm) || ownSynId.includes(mentionedNorm) || mentionedNorm.includes(ownUsername.replace("vu", "").replace("0", "")))) {
+      return undefined; // it’s their own ID — let the LLM answer normally
+    }
     return "I can only show academic information for the account you are currently signed into. I can’t access or display another student’s records. If you want to check a different account, please log out and log in as that account.";
   }
   if (/^(?:am i graduated|have i graduated|did i graduate|am i a graduate|am i still a student|what is my academic status)$/.test(normalized) && student) {
