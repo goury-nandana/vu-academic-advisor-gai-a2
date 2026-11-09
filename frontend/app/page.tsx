@@ -5,6 +5,7 @@ import { ArrowUp, Camera, Check, Copy, FileText, Mic, Square, X, Volume2, Volume
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AdvisorError, askAdvisor, transcribeVoice, type Source, type Visualization } from "./advisor";
+import { classifyMarksheetRequest } from "../lib/marksheet-intent";
 
 type ImageAttachment = { name: string; url: string; file: File };
 type Msg = { id: number; role: "user" | "bot"; text: string; sources?: Source[]; files?: string[]; imageFiles?: ImageAttachment[]; pipeline?: string[]; model?: string; visualization?: Visualization; followUps?: string[]; fileNotes?: string[]; createdAt?: string };
@@ -503,7 +504,7 @@ export default function Home() {
     const question = typed || "Please look at my attachment.";
     const normalizedQuestion = question.toLowerCase();
     const identityQuestion = /\b(?:who\s+(?:am\s+i|a\s+i)|what\s+is\s+my\s+name|my\s+name|my\s+user\s+id|who\s+is\s+logged\s+in|which\s+profile)\b/.test(normalizedQuestion);
-    const marksheetQuestion = /\b(marksheet|mark sheet|transcript)\b/.test(normalizedQuestion) && /\b(download|get|generate|give|show|need|want|provide|my)\b/.test(normalizedQuestion);
+    const marksheetRequest = classifyMarksheetRequest(question, authStudent);
     if (identityQuestion && authStudent) {
       setMessages((current) => [...current, { id: idRef.current++, role: "user", text: question }, { id: idRef.current++, role: "bot", text: "You are **" + authStudent.name + "**. Your User ID is **" + authStudent.username + "** (synthetic profile: " + authStudent.synthetic_student_id + ")." }]);
       if (draftRef.current) { draftRef.current.value = ""; draftRef.current.style.height = ""; }
@@ -516,7 +517,13 @@ export default function Home() {
       setNotice("");
       return;
     }
-    if (marksheetQuestion) {
+    if (marksheetRequest === "other") {
+      setMessages((current) => [...current, { id: idRef.current++, role: "user", text: question }, { id: idRef.current++, role: "bot", text: "I can only generate a synthetic marksheet for the account currently signed in. I cannot provide or generate another student account’s marksheet." }]);
+      if (draftRef.current) { draftRef.current.value = ""; draftRef.current.style.height = ""; }
+      setNotice("");
+      return;
+    }
+    if (marksheetRequest === "self") {
       const semesterMatch = normalizedQuestion.match(/\b(?:semester|sem)\s*(\d{1,2})\b|\b(\d{1,2})(?:st|nd|rd|th)\s+semester\b/);
       const semester = semesterMatch ? Number(semesterMatch[1] || semesterMatch[2]) : undefined;
       const downloadUrl = semester && semester >= 1 && semester <= 10 ? "/api/marksheet?semester=" + semester : "/api/marksheet";
