@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Next.js and frontend build output
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
+
+# Local benchmark output
+benchmark_results.csv
+
+# OS/editor files
+.DS_Store
+Thumbs.db
