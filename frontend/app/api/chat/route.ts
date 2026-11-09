@@ -611,7 +611,7 @@ function getSimpleSocialAnswer(question: string, history: ChatHistoryItem[] = []
     if (student.current_semester === null) return "Your authenticated synthetic profile is marked as graduated; it has no current semester.";
     return "You are currently in **Semester " + student.current_semester + "** according to your authenticated synthetic profile. This is demo data, not an official university record.";
   }
-  if (/\b(?:vu\s*0?\d{2,3}|syn[-\s]?\d{3}|vusyn\d{3})\b/i.test(normalized) && /\b(?:records?|profile|details?|grades?|marks?|cgpa|courses?|show|tell|who is|view|access|get)\b/i.test(normalized)) {
+  if (/\b(?:vu\s*0?\d{2,3}|syn[-\s]?\d{3}|vusyn\d{3})\b/i.test(normalized) && /\b(?:records?|profile|details?|grades?|marks?|marksheet|transcript|cgpa|courses?|show|tell|see|give|who is|view|access|get|download|generate)\b/i.test(normalized)) {
     return "I can only show academic information for the account you are currently signed into. I can’t access or display another student’s records. If you want to check a different account, please log out and log in as that account.";
   }
   if (/^(?:am i graduated|have i graduated|did i graduate|am i a graduate|am i still a student|what is my academic status)$/.test(normalized) && student) {
@@ -849,7 +849,7 @@ function getDeterministicScopeAnswer(question: string): string | undefined {
     (/\b(?:lecture|tutorial|practical|structure|details?)\b/i.test(question) && mentionsKnownCourseTitle(question));
   // Also allow personal academic profile questions and app-feature requests that
   // implicitly refer to the student’s own record — these are always in scope.
-  const isPersonalProfileQuestion = /\b(?:my|mine)\b.{0,80}\b(?:profile|record|progress|summary|status|cgpa|credits?|courses?|backlogs?|marks?|grade|semester|transcript|marksheet|academic|standard|performance|timeline|history)\b|\b(?:read\s+aloud|summarise|summarize|explain).{0,60}\b(?:my|mine)\b|\b(?:download|generate|give\s+me|show\s+me).{0,40}\b(?:marksheet|transcript|pdf|record)\b/i.test(question);
+  const isPersonalProfileQuestion = /\b(?:my|mine)\b.{0,80}\b(?:profile|record|progress|summary|status|cgpa|credits?|courses?|backlogs?|marks?|grade|semester|transcript|marksheet|academic|standard|performance|timeline|history)\b|\b(?:profile|record|progress|summary|status|cgpa|credits?|courses?|backlogs?|marks?|grade|semester|transcript|marksheet|academic|performance|timeline|history)\b.{0,40}\b(?:my|mine)\b|\b(?:read\s+aloud|summarise|summarize|explain).{0,60}\b(?:my|mine)\b|\b(?:download|generate|give\s+me|show\s+me).{0,40}\b(?:marksheet|transcript|pdf|record)\b/i.test(question);
   if (!hasVuAcademicContext && !isPersonalProfileQuestion) {
     return "I’m Vikki Talk, the academic assistant for B.Tech at Vidyashilp University. I’m limited to B.Tech academic advising, so I can’t answer general knowledge questions. I can help with your courses, prerequisites, credits, backlogs, eligibility or academic progress.";
   }
