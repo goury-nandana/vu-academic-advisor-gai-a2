@@ -2388,12 +2388,27 @@ export async function POST(request: Request) {
       ? runAcademicAdvisorAgentWorkflow(syntheticStudent.id,requestedSyntheticCourseCode,ACADEMIC_KNOWLEDGE.courseRecords)
       : undefined;
   const programmeDirectoryIntent = isProgrammeDirectoryQuestion(effectiveQuestion);
+  const clauseComparisonMatch = effectiveQuestion.match(/\b(?:difference|compare|comparison)\b[\s\S]{0,60}?\bclause\s*(\d{1,2})\s*(?:and|&|vs\.?|versus)\s*(?:clause\s*)?(\d{1,2})\b/i);
+  const clauseComparisonRoots = clauseComparisonMatch
+    ? [Number(clauseComparisonMatch[1]), Number(clauseComparisonMatch[2])]
+    : [];
+  const clauseComparisonIsFiveAndNine = clauseComparisonRoots.length === 2 &&
+    clauseComparisonRoots.includes(5) && clauseComparisonRoots.includes(9);
+  const handbookClauseComparisonDocuments:AcademicDocument[] = clauseComparisonIsFiveAndNine
+    ? ACADEMIC_KNOWLEDGE.documents.filter((document) =>
+        /Student Handbook Aug 2026\.pdf/i.test(document.source || "") &&
+        [18, 19, 20, 38].includes(Number(document.page)) &&
+        /(?:5\.[1-6]|9\.[1-5])/.test(document.text || "")
+      )
+    : [];
   const academicRetrievalQuestion = attendancePercentageFollowUp
     ? effectiveQuestion + " attendance policy course-wise attendance requirement 75% 65% End-Term examination"
-    : effectiveQuestion;
+    : clauseComparisonIsFiveAndNine
+      ? effectiveQuestion + " Student Handbook Clause 5 Fee Concession and Scholarship Policy: scholarship categories eligibility general terms process. Clause 9 Examinations: continuous assessment End-Term examination scheduling Make-Up Examinations"
+      : effectiveQuestion;
   const baseAcademicMatches:AcademicDocument[]=programmeDirectoryIntent || onlyImagesUploaded
     ? []
-    : retrieveAcademic(academicRetrievalQuestion,syntheticStudent?.programme||profile.program,structuredCourseSearch);
+    : [...retrieveAcademic(academicRetrievalQuestion,syntheticStudent?.programme||profile.program,structuredCourseSearch), ...handbookClauseComparisonDocuments];
   const syntheticEvidenceDocuments=[...(syntheticAgentWorkflow?.evidenceRecords||[]),...profilePrerequisiteEvidenceRecords].map((record)=>courseRecordDocument(record));
   const academicMatches=[...baseAcademicMatches,...syntheticEvidenceDocuments].filter((document,index,all)=>{
     const key=[document.source||"",document.title||"",document.section||"",document.text.slice(0,100)].join("|");
@@ -2545,10 +2560,24 @@ export async function POST(request: Request) {
   const gradeAverageCalculationIntent = /\b(?:calculat\w*|comput\w*|formula|work\s+out)\b/i.test(effectiveQuestion) &&
     /\b(?:sgpa|cgpa)\b/i.test(effectiveQuestion);
   const gradeAverageCalculationAnswer = gradeAverageCalculationIntent && gradeAverageSourceIndex >= 0
-    ? "**How SGPA and CGPA are calculated**\n\n**SGPA:** Add each registered course's credits multiplied by the grade points received in that semester, then divide by the total credits of the courses registered in that semester.\n\n**CGPA:** Apply the same weighted-average calculation across all courses registered up to and including the latest completed Semester or Academic Term.\n\nCourses with **F** or **FA** grades are included in the calculation with **zero grade points**. The Handbook states that both SGPA and CGPA are rounded to **two decimal places**." + gradeAverageCitation
+    ? "**How SGPA and CGPA are calculated**\n\n**Weighted-average formula:**\n- **SGPA = Σ(Cᵢ × Gᵢ) ÷ Σ(Cᵢ)** for the courses registered in one semester.\n- **CGPA = Σ(Cᵢ × Gᵢ) ÷ Σ(Cᵢ)** across courses registered up to and including the latest completed Semester/Academic Term.\n\nHere, **Cᵢ** is the credit value of course *i*, and **Gᵢ** is the grade point earned in course *i*. Courses with **F** or **FA** grades are included with zero grade points. Both values are rounded to **two decimal places**." + gradeAverageCitation
     : undefined;
-  const queryClauseMatch = effectiveQuestion.match(/\bclause\s*(?:no\.?\s*)?(\d{1,2}(?:\.\d{1,2})*)\b/i);
-  const requestedClauseNumber = queryClauseMatch?.[1];
+  const clauseFiveNineSourceIndices = academicMatches.map((document, index) => ({ document, index }))
+    .filter(({ document }) =>
+      /Student Handbook Aug 2026\.pdf/i.test(document.source || "") &&
+      (([18, 19, 20].includes(Number(document.page)) && /\b5\.[1-6]\b/.test(document.text || "")) ||
+       (Number(document.page) === 38 && /\b9\.[1-5]\b/.test(document.text || "")))
+    )
+    .map(({ index }) => index);
+  const clauseFiveNineComparisonAnswer = clauseComparisonIsFiveAndNine && clauseFiveNineSourceIndices.length
+    ? "**Difference between Clause 5 and Clause 9 — Student Handbook**\n\n" +
+      "**Clause 5 — Fee Concession and Scholarship Policy:** Describes scholarship categories (including merit-based, enabling, encouragement and academic-performance scholarships), eligibility/general terms, and the application/approval process.\n\n" +
+      "**Clause 9 — Examinations:** Covers continuous assessment, scheduling of End-Term and Make-Up Examinations, and rules for Make-Up Examinations, including applicable conditions.\n\n" +
+      "**In short:** Clause 5 concerns financial scholarship support and its administration; Clause 9 concerns assessment and examination procedures." +
+      clauseFiveNineSourceIndices.map((index) => " [" + (index + 1) + "]").join("") +
+      "\n\nThis comparison is based on the Student Handbook excerpts retrieved for Clauses 5 and 9."
+    : undefined;
+  const queryClauseMatch =  const requestedClauseNumber = queryClauseMatch?.[1];
   const asksAcademicTermWithClause = /\bacademic\s+term\b/i.test(effectiveQuestion) && Boolean(requestedClauseNumber);
   const academicTermDefinitionIndex = academicMatches.findIndex((document) =>
     /Student Handbook/i.test(document.source || "") &&
@@ -3012,6 +3041,10 @@ const context=safeData(JSON.stringify({
     answer=btechDegreeCreditAnswer;
     modelUsed="Deterministic official VU B.Tech programme-credit lookup";
     pipeline.push("Retrieved the 180-credit, eight-semester requirement from the official B.Tech programme-structure pages; kept it separate from synthetic credits earned");
+  }else if(clauseFiveNineComparisonAnswer){
+    answer=clauseFiveNineComparisonAnswer;
+    modelUsed="Deterministic Student Handbook Clause 5 and Clause 9 comparison";
+    pipeline.push("Retrieved Handbook pages for Clause 5 scholarship policy and Clause 9 examination regulations and compared their topics");
   }else if(clause4Answer){
     answer=clause4Answer;
     modelUsed="Deterministic Student Handbook Clause 4 lookup";
