@@ -216,11 +216,21 @@ describe("academic question routing", () => {
     expect(result.answer).toMatch(/not stated under Clause 6/i);
   });
 
+  it("compares Clause 5 and Clause 9 from the Student Handbook without clarification", async () => {
+    const result = await ask("difference between clause 5 and 9");
+    expect(result.status).toBe(200);
+    expect(result.answer).toMatch(/Clause 5 — Fee Concession and Scholarship Policy/i);
+    expect(result.answer).toMatch(/Clause 9 — Examinations/i);
+    expect(result.answer).toMatch(/financial scholarship support/i);
+    expect(result.answer).not.toMatch(/Could you let me know the document/i);
+  });
+
   it("answers informal SGPA and CGPA calculation wording without malformed formula markup", async () => {
     const result = await ask("hwo are sgpa nd cgpa calculated");
     expect(result.status).toBe(200);
     expect(result.answer).toMatch(/How SGPA and CGPA are calculated/i);
-    expect(result.answer).toMatch(/credits multiplied by the grade points/i);
+    expect(result.answer).toMatch(/SGPA = Σ\(Cᵢ × Gᵢ\) ÷ Σ\(Cᵢ\)/i);
+    expect(result.answer).toMatch(/CGPA = Σ\(Cᵢ × Gᵢ\) ÷ Σ\(Cᵢ\)/i);
     expect(result.answer).toMatch(/F.*FA.*zero grade points/i);
     expect(result.answer).toMatch(/two decimal places/i);
     expect(result.answer).not.toMatch(/\\sum\{/i);
