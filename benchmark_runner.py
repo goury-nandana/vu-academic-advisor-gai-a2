@@ -71,22 +71,35 @@ def source_context(question, course_rows, documents):
 
 
 def read_questions(path, limit=None):
+    """Load benchmark questions with explicit path and workbook validation."""
+    path = Path(path)
+    if not path.is_file():
+        raise RuntimeError(
+            f"Benchmark workbook not found: {path}. "
+            "Provide the workbook with --questions; it is not included in this repository."
+        )
     wb = load_workbook(path, read_only=True, data_only=True)
-    ws = wb["Benchmark Questions"]
-    questions = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if not row[0] or not row[3]:
-            continue
-        questions.append({
-            "id": str(row[0]), "set": str(row[1] or ""),
-            "subcategory": str(row[2] or ""), "question": str(row[3]),
-            "expected_behaviour": str(row[4] or ""),
-            "gold_facts": str(row[5] or ""),
-            "source_reference": str(row[6] or ""),
-            "scoring_notes": str(row[7] or ""),
-        })
-    wb.close()
-    return questions[:limit] if limit else questions
+    try:
+        if "Benchmark Questions" not in wb.sheetnames:
+            raise RuntimeError(
+                f"Benchmark workbook {path.name} must contain a 'Benchmark Questions' sheet."
+            )
+        ws = wb["Benchmark Questions"]
+        questions = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row[0] or not row[3]:
+                continue
+            questions.append({
+                "id": str(row[0]), "set": str(row[1] or ""),
+                "subcategory": str(row[2] or ""), "question": str(row[3]),
+                "expected_behaviour": str(row[4] or ""),
+                "gold_facts": str(row[5] or ""),
+                "source_reference": str(row[6] or ""),
+                "scoring_notes": str(row[7] or ""),
+            })
+        return questions[:limit] if limit is not None else questions
+    finally:
+        wb.close()
 
 
 def available_models(client):
@@ -97,19 +110,28 @@ def available_models(client):
     return [model for model in CANDIDATE_MODELS if model in listed]
 
 
-def run_benchmark(limit=None, output_path=OUTPUT_FILE):
+def validate_available_models(models):
+    """Allow any non-empty subset of the configured candidate models."""
+    models = list(models)
+    if not models:
+        raise RuntimeError(
+            "None of the configured candidate models are available to this Groq account. "
+            "Check model availability and account access; no benchmark results were generated."
+        )
+    return models
+
+
+def run_benchmark(limit=None, output_path=OUTPUT_FILE, questions_path=QUESTIONS_FILE):
     key = os.getenv("GROQ_API_KEY", "").strip()
     if not key:
         raise RuntimeError("Set GROQ_API_KEY in the environment; do not add paid API access.")
     client = Groq(api_key=key)
-    models = available_models(client)
-    if len(models) < 10:
-        raise RuntimeError(
-            f"Only {len(models)} of the ten configured free-access candidates are currently "
-            "listed for this Groq account. No results were generated; do not substitute paid access."
-        )
-    models = models[:10]
-    questions = read_questions(QUESTIONS_FILE, limit)
+    questions = read_questions(questions_path, limit)
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("Set GROQ_API_KEY in the environment; do not add paid API access.")
+    client = Groq(api_key=key)
+    models = validate_available_models(available_models(client))
     course_rows = load_course_records()
     documents = load_embedded_documents()
     output_fields = [
@@ -162,5 +184,12 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None,
                         help="Optional question limit for a small smoke run.")
     parser.add_argument("--output", default=str(OUTPUT_FILE))
+    parser.add_argument(
+        "--questions", default=str(QUESTIONS_FILE),
+        help="Path to the private benchmark workbook (not included in the repository).",
+    )
     args = parser.parse_args()
-    print(json.dumps(run_benchmark(args.limit, Path(args.output)), indent=2))
+    print(json.dumps(
+        run_benchmark(args.limit, Path(args.output), Path(args.questions)),
+        indent=2,
+    ))
