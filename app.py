@@ -701,33 +701,124 @@ def fetch_sublinks(url):
     except Exception:
         return []
 
+def _is_allowed_sitemap_url(url, allowed_host, resolved_ips=None):
+    """Permit only HTTP(S) URLs on the approved public host and standard ports."""
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+
+    try:
+        parsed = urlparse(str(url))
+        scheme = parsed.scheme.lower()
+        if scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        port = parsed.port
+        if port is not None and port != (80 if scheme == "http" else 443):
+            return False
+
+        raw_hostname = parsed.hostname.lower().rstrip(".")
+        hostname = raw_hostname.removeprefix("www.")
+        approved = str(allowed_host or "").lower().rstrip(".").removeprefix("www.")
+        if hostname != approved:
+            return False
+
+        try:
+            literal_ip = ipaddress.ip_address(parsed.hostname)
+            addresses = [literal_ip]
+        except ValueError:
+            if resolved_ips is not None and raw_hostname in resolved_ips:
+                raw_addresses = resolved_ips[raw_hostname]
+            else:
+                try:
+                    raw_addresses = [
+                        item[4][0]
+                        for item in socket.getaddrinfo(parsed.hostname, None, type=socket.SOCK_STREAM)
+                    ]
+                except OSError:
+                    raw_addresses = []
+                if resolved_ips is not None:
+                    resolved_ips[raw_hostname] = raw_addresses
+            addresses = []
+            for raw_address in raw_addresses:
+                try:
+                    addresses.append(ipaddress.ip_address(raw_address))
+                except ValueError:
+                    return False
+
+        return bool(addresses) and all(address.is_global for address in addresses)
+    except (TypeError, ValueError):
+        return False
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_sitemap_urls(origin):
-    """Read the website's sitemap(s) (if any) and return all page URLs listed there."""
+    """Read same-host public sitemap(s), rejecting unsafe hosts and redirects."""
+    from urllib.parse import urlparse, urljoin
+
     found = []
-    queue = [origin + "/sitemap.xml", origin + "/sitemap_index.xml", origin + "/wp-sitemap.xml"]
+    origin_host = urlparse(origin).hostname
+    if not origin_host:
+        return found
+    resolved_ips = {}
+    queue = [
+        origin.rstrip("/") + "/sitemap.xml",
+        origin.rstrip("/") + "/sitemap_index.xml",
+        origin.rstrip("/") + "/wp-sitemap.xml",
+    ]
     visited = set()
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers = {"User-Agent": "VU-Academic-Advisor-Sitemap-Reader/1.0"}
+
     while queue and len(visited) < 40:
         sitemap = queue.pop(0)
-        if sitemap in visited:
+        if sitemap in visited or not _is_allowed_sitemap_url(sitemap, origin_host, resolved_ips):
             continue
         visited.add(sitemap)
+        current_url = sitemap
+        locations = []
+        response = None
         try:
-            response = requests.get(sitemap, headers=headers, timeout=20)
-            if response.status_code != 200:
-                continue
-            locations = re.findall(r"<loc>\s*(.*?)\s*</loc>", response.text, re.S)
+            for _ in range(5):
+                response = requests.get(
+                    current_url, headers=headers, timeout=20, allow_redirects=False
+                )
+                if response.status_code in (301, 302, 303, 307, 308):
+                    location = response.headers.get("Location")
+                    response.close()
+                    response = None
+                    if not location:
+                        break
+                    current_url = urljoin(current_url, location)
+                    if not _is_allowed_sitemap_url(current_url, origin_host, resolved_ips):
+                        break
+                    continue
+                if response.status_code != 200:
+                    response.close()
+                    response = None
+                    break
+                locations = re.findall(r"<loc>\s*(.*?)\s*</loc>", response.text, re.S)
+                response.close()
+                response = None
+                break
+            else:
+                locations = []
         except Exception:
+            if response is not None:
+                response.close()
             continue
+
         for loc in locations:
-            loc = html.unescape(loc.strip())
-            if loc.lower().endswith(".xml"):
-                queue.append(loc)
+            loc = urljoin(current_url, html.unescape(loc.strip()))
+            if not _is_allowed_sitemap_url(loc, origin_host, resolved_ips):
+                continue
+            if urlparse(loc).path.lower().endswith(".xml"):
+                if loc not in visited and loc not in queue:
+                    queue.append(loc)
             elif loc not in found:
                 found.append(loc)
-    return found
 
+    return found
 def expand_with_sublinks(sources):
     """Add every sub-page of each listed link (one level deep) plus sitemap pages to the source list."""
     if not CRAWL_SUBLINKS:
