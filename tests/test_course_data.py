@@ -68,6 +68,22 @@ class CourseDataFidelityTests(unittest.TestCase):
             course_records_for_question("What about XUCOR2050?", self.records), []
         )
 
+    def test_exact_lookup_supports_four_digit_codes_and_optional_suffix(self):
+        records = [
+            {
+                "course_code": "ABCD1234X",
+                "batch": "2026",
+                "document_type": "semester_spread",
+                "is_course_record": True,
+                "source": "test.xlsx",
+                "cells": {"code": "B2"},
+                "text": "ABCD1234X — Test Course.",
+            },
+        ]
+        found = course_records_for_question("Please explain ABCD-1234X.", records)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["course_code"], "ABCD1234X")
+
     def test_source_provenance_is_present(self):
         for row in self.records:
             self.assertTrue(row["source"])
