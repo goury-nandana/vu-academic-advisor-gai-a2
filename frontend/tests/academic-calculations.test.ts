@@ -31,6 +31,16 @@ describe("repeat-course academic calculations", () => {
     ]);
   });
 
+  it("ignores invalid, infinite, and negative credits rather than corrupting totals", () => {
+    const summary = calculateCompletedCourseCredits([
+      { course_code: "GOOD101", semester: 1, credits: 4, grade: "A", status: "Passed" },
+      { course_code: "BAD101", semester: 1, credits: Number.NaN, grade: "A", status: "Passed" },
+      { course_code: "BAD102", semester: 1, credits: Number.POSITIVE_INFINITY, grade: "A", status: "Passed" },
+      { course_code: "BAD103", semester: 1, credits: -3, grade: "A", status: "Passed" },
+    ]);
+    expect(summary.total).toBe(4);
+  });
+
   it("matches the specialist agent credit result to the student profile total", () => {
     const agentStudent: SyntheticStudent = {
       id: nandita.id,
