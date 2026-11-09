@@ -149,7 +149,7 @@ function renderAnswer(text: string) {
                       document.body.appendChild(a);
                       a.click();
                       a.remove();
-                      URL.revokeObjectURL(url);
+                      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
                     } catch { alert("Download failed. Please try again."); }
                   }}
                 >
@@ -766,6 +766,9 @@ export default function Home() {
           <button className="clear" onClick={async () => {
             cancelPendingWork();
             await fetch("/api/auth/logout", { method: "POST" });
+            messages.forEach((message) =>
+              message.imageFiles?.forEach((image) => URL.revokeObjectURL(image.url)),
+            );
             setAuthStudent(null);
             setLoginPassword("");
             setLoginError("");
